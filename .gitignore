@@ -1,0 +1,22 @@
+# ===== Never push these =====
+
+# OAuth secrets
+token.json
+pkce_state.json
+
+# PowerShell / Python scripts (contain Client ID / auth code)
+*.ps1
+*.py
+
+# Windows launchers (not needed on server)
+*.bat
+
+# Local-only JSON sources (we publish .js equivalents)
+data.json
+statcast.json
+
+# Standalone mobile bundle (can regenerate anytime)
+dashboard_mobile.html
+
+# Instructions & misc
+*.txt

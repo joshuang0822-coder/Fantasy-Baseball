@@ -4,6 +4,9 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Yahoo 夢幻棒球儀表板</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="data.js" onerror="window.__dataLoadFailed = true"></script>
@@ -239,30 +242,300 @@
   ::-webkit-scrollbar-track { background: var(--bg-1); }
   ::-webkit-scrollbar-thumb { background: var(--bg-4); border-radius: 5px; }
   ::-webkit-scrollbar-thumb:hover { background: var(--neon-cyan); }
+
+  /* ============================================
+     POLISH PASS — typography, hero, animations
+     ============================================ */
+
+  /* Better fonts */
+  body {
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif !important;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  .font-mono, td.font-mono, .font-mono * { font-family: "JetBrains Mono", ui-monospace, monospace !important; font-feature-settings: "tnum"; }
+  td.font-mono { letter-spacing: -0.02em; }
+
+  /* Hero header polish */
+  h1 {
+    font-size: 2rem !important;
+    font-weight: 800 !important;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+    background: linear-gradient(120deg, #22d3ee 0%, #3b82f6 45%, #a78bfa 100%) !important;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent !important;
+    text-shadow: 0 0 60px rgba(34,211,238,0.25);
+    animation: titleGlow 4s ease-in-out infinite alternate;
+  }
+  @keyframes titleGlow {
+    from { text-shadow: 0 0 40px rgba(34,211,238,0.2); }
+    to { text-shadow: 0 0 80px rgba(167,139,250,0.35); }
+  }
+
+  /* Card lift on hover */
+  .bg-white {
+    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease !important;
+  }
+  .bg-white:hover {
+    transform: translateY(-2px);
+    border-color: rgba(34,211,238,0.35) !important;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4), 0 0 24px rgba(34,211,238,0.12);
+  }
+
+  /* Section header (h3) — bigger, bolder */
+  h3 {
+    font-size: 1rem !important;
+    font-weight: 700 !important;
+    letter-spacing: -0.01em;
+    color: #f1f5f9 !important;
+  }
+
+  /* Tab pills — pill style with smoother active */
+  .tab-btn {
+    border-radius: 999px !important;
+    padding: 8px 16px !important;
+    font-weight: 600 !important;
+    border: 1px solid transparent;
+    transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  }
+  .tab-btn:hover:not(.active) {
+    transform: translateY(-1px);
+  }
+  .tab-btn.active {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 16px rgba(34,211,238,0.5), 0 0 24px rgba(59,130,246,0.3) !important;
+  }
+
+  /* Tab bar container — remove the boring underline */
+  .flex.gap-1.mb-4.border-b { border-bottom: none !important; gap: 8px !important; padding: 4px; background: rgba(15,23,42,0.5); border-radius: 999px; backdrop-filter: blur(8px); border: 1px solid var(--border) !important; }
+
+  /* Animated tab content fade-in */
+  .tab-panel:not(.hidden) {
+    animation: fadeInUp 0.35s ease-out;
+  }
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Stat card upgrade — bigger numbers, glow */
+  #statCards > div {
+    background: linear-gradient(135deg, rgba(34,211,238,0.08) 0%, rgba(59,130,246,0.04) 100%) !important;
+    border: 1px solid rgba(34,211,238,0.15) !important;
+    backdrop-filter: blur(12px);
+    overflow: hidden;
+    position: relative;
+  }
+  #statCards > div::before {
+    content: "";
+    position: absolute; inset: 0;
+    background: radial-gradient(circle at top right, rgba(34,211,238,0.15), transparent 60%);
+    pointer-events: none; opacity: 0; transition: opacity 0.3s;
+  }
+  #statCards > div:hover::before { opacity: 1; }
+  #statCards > div .text-xl {
+    font-size: 1.6rem !important;
+    font-weight: 800 !important;
+    letter-spacing: -0.02em;
+    color: var(--neon-cyan) !important;
+    text-shadow: 0 0 20px rgba(34,211,238,0.4);
+    font-family: "Inter", system-ui, sans-serif !important;
+  }
+  #statCards > div .text-xs.uppercase {
+    color: rgba(148,163,184,0.85) !important;
+    font-weight: 600;
+    font-size: 10.5px !important;
+    letter-spacing: 0.12em;
+  }
+
+  /* Refresh button — sharper */
+  button.bg-white {
+    border-radius: 8px !important;
+    padding: 8px 14px !important;
+  }
+
+  /* Tables — alternating row stripes for readability */
+  tbody tr:nth-child(even):not(.my-team-row):not(.bg-amber-50) {
+    background: rgba(255,255,255,0.015);
+  }
+  tbody tr:nth-child(odd):not(.my-team-row):not(.bg-amber-50) {
+    background: transparent;
+  }
+
+  /* First column "name" emphasis */
+  tbody td.font-medium {
+    color: #f1f5f9;
+    font-weight: 600;
+  }
+
+  /* Sub-tab buttons (Statcast / Roster) — pill */
+  .sc-sub-btn, .toggle-btn {
+    border-radius: 999px !important;
+    padding: 6px 14px !important;
+    transition: all 0.18s ease !important;
+  }
+  .sc-sub-btn:hover:not(.active), .toggle-btn:hover:not(.active) {
+    background: rgba(255,255,255,0.06) !important;
+    color: var(--text-hi) !important;
+  }
+  .sc-sub-btn.active, .toggle-btn.active {
+    box-shadow: 0 0 18px rgba(34,211,238,0.4) !important;
+  }
+
+  /* Section header underline accent for visual hierarchy */
+  .px-4.py-3.border-b.border-slate-200 {
+    background: linear-gradient(180deg, rgba(34,211,238,0.04) 0%, transparent 100%);
+  }
+
+  /* Score badge — bigger, more dramatic */
+  .score-badge {
+    padding: 3px 10px !important;
+    border-radius: 6px !important;
+    font-size: 12.5px !important;
+    font-weight: 700 !important;
+    letter-spacing: -0.02em;
+  }
+  .score-badge.tier-elite {
+    box-shadow: 0 0 14px rgba(251,191,36,0.4);
+  }
+
+  /* Rank badge polish */
+  .rank-badge {
+    box-shadow: inset 0 -2px 4px rgba(0,0,0,0.2);
+    font-family: "JetBrains Mono", monospace !important;
+  }
+
+  /* Mobile tweaks */
+  @media (max-width: 768px) {
+    h1 { font-size: 1.4rem !important; }
+    #statCards > div .text-xl { font-size: 1.2rem !important; }
+    .tab-btn { padding: 6px 12px !important; font-size: 12px; }
+    table { font-size: 11.5px; }
+    th { padding: 6px 6px !important; font-size: 9px !important; }
+    td { padding: 6px 6px !important; }
+    .max-w-screen-2xl { padding-left: 12px !important; padding-right: 12px !important; }
+  }
+
+  /* Loading shimmer when leagueName still says 載入中 */
+  #leagueName:empty::before, #leagueName[textContent="載入中…"] {
+    background: linear-gradient(90deg, rgba(34,211,238,0.1), rgba(34,211,238,0.4), rgba(34,211,238,0.1));
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+
+  /* Smooth fade for tab buttons hover */
+  .tab-btn:not(.active):hover {
+    background: rgba(34,211,238,0.08) !important;
+    color: var(--neon-cyan) !important;
+    border-color: rgba(34,211,238,0.2);
+  }
+
+  /* Border highlight for "my team" matchup card */
+  .border-blue-400 {
+    box-shadow: 0 0 0 1px var(--neon-cyan), 0 4px 20px rgba(34,211,238,0.15);
+    background: linear-gradient(135deg, rgba(34,211,238,0.08), rgba(59,130,246,0.04)) !important;
+  }
+
+  /* Player position chip styling */
+  td.font-mono.text-xs:first-child {
+    color: var(--neon-cyan);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  /* Colored cells (hot/cold) — more elegant */
+  .hot { color: var(--neon-green) !important; }
+  .cold { color: var(--neon-red) !important; }
+  .hot, .cold { font-weight: 700 !important; }
+
+  /* Sticky table headers when scrolling */
+  thead th { position: sticky; top: 0; z-index: 10; }
+
+  /* ========= Matchup card redesign ========= */
+  .matchup-card {
+    background: linear-gradient(135deg, rgba(15,23,42,0.6) 0%, rgba(20,30,50,0.4) 100%);
+    backdrop-filter: blur(8px);
+    transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+  }
+  .matchup-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(34,211,238,0.4) !important;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.5), 0 0 18px rgba(34,211,238,0.1);
+  }
+  .matchup-card.border-cyan-400 {
+    border-color: var(--neon-cyan) !important;
+    box-shadow: 0 0 0 1px rgba(34,211,238,0.4), 0 4px 24px rgba(34,211,238,0.15);
+    background: linear-gradient(135deg, rgba(34,211,238,0.06), rgba(59,130,246,0.03)) !important;
+  }
+  .matchup-win {
+    color: var(--neon-cyan) !important;
+    text-shadow: 0 0 14px rgba(34,211,238,0.5);
+  }
+  .matchup-lose {
+    color: rgba(148,163,184,0.5) !important;
+  }
+  .matchup-status-win, .matchup-status-lose, .matchup-status-tie {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    padding: 3px 9px;
+    border-radius: 999px;
+    text-transform: uppercase;
+  }
+  .matchup-status-win {
+    background: rgba(74,222,128,0.15);
+    color: #4ade80;
+    border: 1px solid rgba(74,222,128,0.4);
+    box-shadow: 0 0 12px rgba(74,222,128,0.25);
+  }
+  .matchup-status-lose {
+    background: rgba(248,113,113,0.15);
+    color: #f87171;
+    border: 1px solid rgba(248,113,113,0.4);
+  }
+  .matchup-status-tie {
+    background: rgba(148,163,184,0.15);
+    color: #cbd5e1;
+    border: 1px solid rgba(148,163,184,0.3);
+  }
+  .bg-cyan-500\/5 { background: rgba(34,211,238,0.04); }
+  .border-cyan-400 { border-color: var(--neon-cyan) !important; }
+  .bg-cyan-500\/20 { background: rgba(34,211,238,0.18); }
+  .text-cyan-300 { color: #67e8f9; }
 </style>
 </head>
 <body class="bg-slate-50 min-h-screen">
 
 <div class="max-w-screen-2xl mx-auto px-4 py-6">
   <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
-    <div>
-      <h1 id="leagueName" class="text-2xl font-bold text-slate-900">載入中…</h1>
-      <div id="leagueMeta" class="text-sm text-slate-500 mt-1"></div>
+    <div class="flex items-center gap-3">
+      <div class="text-3xl">⚾</div>
+      <div>
+        <h1 id="leagueName" class="text-2xl font-bold text-slate-900">載入中…</h1>
+        <div id="leagueMeta" class="text-sm text-slate-500 mt-1"></div>
+      </div>
     </div>
     <div class="flex items-center gap-3">
       <div id="sampleBadge" class="hidden bg-amber-100 text-amber-800 text-xs font-semibold px-3 py-1.5 rounded-full">範例資料</div>
-      <button onclick="location.reload()" class="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-sm px-3 py-1.5 rounded-md">重新整理</button>
+      <button onclick="location.reload()" class="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-sm px-3 py-1.5 rounded-md flex items-center gap-1.5"><span>🔄</span>重新整理</button>
     </div>
   </div>
 
   <div id="statCards" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6"></div>
 
   <div class="flex gap-1 mb-4 border-b border-slate-200 flex-wrap">
-    <button class="tab-btn active px-4 py-2 text-sm font-medium rounded-t-md" data-tab="standings">戰績榜</button>
-    <button class="tab-btn px-4 py-2 text-sm font-medium rounded-t-md text-slate-600 hover:bg-slate-100" data-tab="matchups">本週對戰</button>
-    <button class="tab-btn px-4 py-2 text-sm font-medium rounded-t-md text-slate-600 hover:bg-slate-100" data-tab="roster">我的陣容</button>
-    <button class="tab-btn px-4 py-2 text-sm font-medium rounded-t-md text-slate-600 hover:bg-slate-100" data-tab="waivers">自由球員市場</button>
-    <button class="tab-btn px-4 py-2 text-sm font-medium rounded-t-md text-slate-600 hover:bg-slate-100" data-tab="statcast">Statcast 進階</button>
+    <button class="tab-btn active px-4 py-2 text-sm font-medium rounded-t-md" data-tab="standings">🏆 戰績榜</button>
+    <button class="tab-btn px-4 py-2 text-sm font-medium rounded-t-md text-slate-600 hover:bg-slate-100" data-tab="matchups">⚔️ 本週對戰</button>
+    <button class="tab-btn px-4 py-2 text-sm font-medium rounded-t-md text-slate-600 hover:bg-slate-100" data-tab="roster">👥 我的陣容</button>
+    <button class="tab-btn px-4 py-2 text-sm font-medium rounded-t-md text-slate-600 hover:bg-slate-100" data-tab="waivers">🎯 自由球員</button>
+    <button class="tab-btn px-4 py-2 text-sm font-medium rounded-t-md text-slate-600 hover:bg-slate-100" data-tab="statcast">📊 Statcast 進階</button>
   </div>
 
   <div id="noData" class="hidden bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-900 mb-3">尚無 Yahoo 資料 — Statcast 分頁仍可使用。</div>
@@ -906,11 +1179,52 @@ var PITCHER_COLSPAN = 19;
   var standingsByKey = {};
   (D.standings || []).forEach(function(t) { standingsByKey[t.team_key] = t; });
 
-  // Simple matchup cards (no inline analysis)
+  // Matchup cards — redesigned with prominent score + winner highlight
   document.getElementById("matchupsGrid").innerHTML = matchups.map(function(m) {
     var isMine = m.team_a === D.my_team || m.team_b === D.my_team;
-    var leaderDisp = m.leader === "Tied" ? "平手" : m.leader;
-    return "<div class='border " + (isMine?"border-blue-400 bg-blue-50":"border-slate-200") + " rounded-lg p-4'><div class='flex items-center justify-between'><div>" + m.team_a + "</div><div class='font-mono'>" + m.cats_a + "</div></div><div class='border-t my-2'></div><div class='flex items-center justify-between'><div>" + m.team_b + "</div><div class='font-mono'>" + m.cats_b + "</div></div><div class='text-xs text-slate-500 mt-2'>領先:" + leaderDisp + "</div></div>";
+    var aWin = m.cats_a > m.cats_b;
+    var bWin = m.cats_b > m.cats_a;
+    var tied = m.cats_a === m.cats_b;
+    var aIsMe = m.team_a === D.my_team;
+    var bIsMe = m.team_b === D.my_team;
+
+    function teamRow(name, score, isWinner, isMe) {
+      var nameCls = "text-sm " + (isWinner ? "text-slate-100 font-semibold" : "text-slate-400");
+      var scoreCls = "font-mono text-2xl font-bold tabular-nums " + (isWinner ? "matchup-win" : "matchup-lose");
+      var meBadge = isMe ? "<span class='text-[10px] font-bold px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 ml-2'>你</span>" : "";
+      var winIcon = isWinner ? "<span class='text-base mr-1' title='領先'>🏆</span>" : "";
+      return "<div class='flex items-center justify-between py-1.5'>" +
+        "<div class='flex items-center min-w-0'><div class='" + nameCls + " truncate'>" + name + "</div>" + meBadge + "</div>" +
+        "<div class='flex items-center'>" + winIcon + "<span class='" + scoreCls + "'>" + score + "</span></div>" +
+        "</div>";
+    }
+    var statusBadge = "";
+    if (isMine && !tied) {
+      var iWin = (aIsMe && aWin) || (bIsMe && bWin);
+      statusBadge = iWin
+        ? "<div class='matchup-status-win'>領先</div>"
+        : "<div class='matchup-status-lose'>落後</div>";
+    } else if (isMine && tied) {
+      statusBadge = "<div class='matchup-status-tie'>平手</div>";
+    }
+    var diff = Math.abs(m.cats_a - m.cats_b);
+    var gapBadge = tied
+      ? "<div class='text-xs text-slate-500 font-mono'>VS</div>"
+      : "<div class='text-xs text-slate-500 font-mono'>差 " + diff + "</div>";
+
+    var borderCls = isMine ? "border-cyan-400" : "border-slate-700";
+    var bgCls = isMine ? "bg-cyan-500/5" : "";
+
+    return "<div class='matchup-card relative border " + borderCls + " " + bgCls + " rounded-xl p-4'>" +
+      (statusBadge ? "<div class='absolute top-2 right-3'>" + statusBadge + "</div>" : "") +
+      teamRow(m.team_a, m.cats_a, aWin, aIsMe) +
+      "<div class='flex items-center gap-2 my-1'>" +
+        "<div class='flex-1 h-px bg-slate-700/50'></div>" +
+        gapBadge +
+        "<div class='flex-1 h-px bg-slate-700/50'></div>" +
+      "</div>" +
+      teamRow(m.team_b, m.cats_b, bWin, bIsMe) +
+      "</div>";
   }).join("") || "<div class='text-sm text-slate-500'>尚無對戰資料</div>";
 
   // Side panel: opponent analysis + waiver suggestions

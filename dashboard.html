@@ -581,6 +581,13 @@
           </div>
           <div id="matchupPrediction" class="p-4"></div>
         </div>
+        <div class="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+          <div class="px-4 py-3 border-b border-slate-200">
+            <h3 class="font-semibold">📊 本週各項目分析</h3>
+            <p class="text-xs text-slate-500 mt-1">每項目的實際數據對比 + 雙方主要貢獻者 + 與賽季平均的偏離</p>
+          </div>
+          <div id="categoryBreakdown" class="p-4"></div>
+        </div>
       </div>
       <div class="space-y-4">
         <div id="oppPanel" class="bg-white rounded-lg shadow-sm border border-blue-200 overflow-hidden">
@@ -1883,6 +1890,166 @@ var PITCHER_COLSPAN = 19;
       html += "</div>";
       remDiv.innerHTML = html;
     }
+  })();
+
+  // --- Category breakdown: per-cat actual analysis with player attribution ---
+  (function buildCategoryBreakdown() {
+    var bdDiv = document.getElementById("categoryBreakdown");
+    if (!bdDiv) return;
+    var cats = D.stat_categories || [];
+    var weekly = D.weekly_stats || [];
+    var matchupsList = D.matchups || [];
+    var myPlayers = D.my_player_week || [];
+    var oppPlayers = D.opp_player_week || [];
+    var standings = D.standings || [];
+    var standingsByKey = {};
+    standings.forEach(function(t){ standingsByKey[t.team_key] = t; });
+
+    var myMatch = matchupsList.find(function(m){ return m.team_a === D.my_team || m.team_b === D.my_team; });
+    if (!myMatch || cats.length === 0 || weekly.length === 0) {
+      bdDiv.innerHTML = "<div class='text-sm text-slate-500'>等下次跑 連線.bat 才會有本週球員數據</div>";
+      return;
+    }
+
+    var myKey = D.my_team_key;
+    var oppKey = myMatch.team_a === D.my_team ? myMatch.team_b_key : myMatch.team_a_key;
+    var currentWeek = (D.league && D.league.current_week) || 0;
+    var thisWeekData = weekly.find(function(w){ return w.week === currentWeek; });
+    var weekTeamStats = (thisWeekData && thisWeekData.teams) || {};
+    var myWeekStats = weekTeamStats[myKey] || {};
+    var oppWeekStats = weekTeamStats[oppKey] || {};
+
+    // Compute season per-week averages from past weeks (excluding current incomplete week)
+    function avgPerWeek(teamKey, statId, isInverse) {
+      var vals = [];
+      weekly.forEach(function(w) {
+        if (w.week === currentWeek) return;
+        var v = (w.teams && w.teams[teamKey] && w.teams[teamKey][statId]);
+        if (v !== undefined && !isNaN(Number(v))) vals.push(Number(v));
+      });
+      if (vals.length === 0) return null;
+      // For rate stats use mean; for counts also use mean
+      return vals.reduce(function(a,b){ return a+b; }, 0) / vals.length;
+    }
+
+    // Stat ID classification
+    var rateCats = { "3":1, "55":1, "26":1, "27":1, "56":1 };  // AVG OPS ERA WHIP K/BB
+    var countCats = { "7":1, "12":1, "13":1, "16":1, "18":1, "28":1, "42":1, "83":1, "89":1 };
+
+    function topContributors(playerList, statId, n, ascending) {
+      n = n || 3;
+      var out = [];
+      playerList.forEach(function(p) {
+        var v = p.stats && p.stats[statId];
+        if (v === undefined || v === null || v === "" || v === "-") return;
+        var num = Number(v);
+        if (isNaN(num) || num === 0) return;
+        out.push({ name: p.name, val: num, pos: p.pos });
+      });
+      out.sort(function(a,b){ return ascending ? a.val - b.val : b.val - a.val; });
+      return out.slice(0, n);
+    }
+
+    function fmtVal(v, isRate) {
+      if (v === null || v === undefined || isNaN(v)) return "—";
+      if (isRate) {
+        if (v < 1 && v > 0) return v.toFixed(3);
+        return v.toFixed(2);
+      }
+      return Math.round(v);
+    }
+
+    // Cat metadata: emoji + display tweaks
+    var catMeta = {
+      "7":  { emoji: "🏃", label: "得分" },
+      "12": { emoji: "💥", label: "全壘打" },
+      "13": { emoji: "📥", label: "打點" },
+      "16": { emoji: "🏃‍♂️", label: "盜壘" },
+      "18": { emoji: "🚶", label: "保送" },
+      "3":  { emoji: "🎯", label: "打擊率" },
+      "55": { emoji: "📈", label: "OPS" },
+      "28": { emoji: "🏆", label: "勝投" },
+      "42": { emoji: "⚡", label: "三振" },
+      "26": { emoji: "🛡️", label: "ERA" },
+      "27": { emoji: "🎚️", label: "WHIP" },
+      "56": { emoji: "🎲", label: "K/BB" },
+      "83": { emoji: "💎", label: "QS" },
+      "89": { emoji: "🔒", label: "SV+H" }
+    };
+
+    var html = "<div class='grid grid-cols-1 md:grid-cols-2 gap-3'>";
+    cats.forEach(function(c) {
+      var sid = c.stat_id;
+      var inv = c.inverse;
+      var isRate = !!rateCats[sid];
+      var meta = catMeta[sid] || { emoji: "📊", label: c.name };
+
+      var myVal = myWeekStats[sid] !== undefined ? Number(myWeekStats[sid]) : null;
+      var oppVal = oppWeekStats[sid] !== undefined ? Number(oppWeekStats[sid]) : null;
+
+      var verdict, vCls;
+      if (myVal === null || oppVal === null) {
+        verdict = "?"; vCls = "bg-slate-700/30 text-slate-400";
+      } else if ((!inv && myVal > oppVal) || (inv && myVal < oppVal)) {
+        verdict = "領先"; vCls = "bg-green-500/20 text-green-300 border border-green-500/40";
+      } else if ((!inv && myVal < oppVal) || (inv && myVal > oppVal)) {
+        verdict = "落後"; vCls = "bg-red-500/20 text-red-300 border border-red-500/40";
+      } else {
+        verdict = "平手"; vCls = "bg-slate-700/40 text-slate-300";
+      }
+
+      // Pace comparison: this week vs my season per-week avg
+      var myAvg = avgPerWeek(myKey, sid);
+      var oppAvg = avgPerWeek(oppKey, sid);
+      function paceLabel(cur, avg, isInv) {
+        if (cur === null || avg === null || avg === 0) return "";
+        var ratio = cur / avg;
+        // For inverse, "better" means cur < avg (lower)
+        if (isInv) {
+          if (ratio < 0.85) return "<span class='text-green-400'>(↑超常)</span>";
+          if (ratio > 1.15) return "<span class='text-red-400'>(↓失常)</span>";
+        } else {
+          if (ratio > 1.15) return "<span class='text-green-400'>(↑超常)</span>";
+          if (ratio < 0.85) return "<span class='text-red-400'>(↓失常)</span>";
+        }
+        return "<span class='text-slate-500'>(正常)</span>";
+      }
+
+      // Top contributors (only meaningful for count stats)
+      var contribHtml = "";
+      if (countCats[sid]) {
+        var ascending = inv;
+        var myTop = topContributors(myPlayers, sid, 3, ascending);
+        var oppTop = topContributors(oppPlayers, sid, 3, ascending);
+        var fmtList = function(list) {
+          if (list.length === 0) return "<span class='text-slate-600'>無</span>";
+          return list.map(function(p){ return "<span class='inline-block'>" + p.name.split(' ').slice(-1)[0] + " <span class='text-slate-400 font-mono'>" + p.val + "</span></span>"; }).join(" · ");
+        };
+        contribHtml =
+          "<div class='text-xs text-cyan-300 mt-2'>你的主力: <span class='text-slate-300'>" + fmtList(myTop) + "</span></div>" +
+          "<div class='text-xs text-red-300 mt-1'>對手主力: <span class='text-slate-300'>" + fmtList(oppTop) + "</span></div>";
+      } else {
+        contribHtml = "<div class='text-xs text-slate-500 mt-2'>(率值類項目,無單一主力)</div>";
+      }
+
+      var bigClass = (myVal !== null && oppVal !== null) ? (((!inv && myVal >= oppVal) || (inv && myVal <= oppVal)) ? "text-cyan-400" : "text-slate-400") : "text-slate-500";
+      var oppBigClass = (myVal !== null && oppVal !== null) ? (((!inv && oppVal > myVal) || (inv && oppVal < myVal)) ? "text-red-300 font-bold" : "text-slate-400") : "text-slate-500";
+
+      html += "<div class='border border-slate-700/50 rounded-lg p-3 bg-slate-900/40'>" +
+        "<div class='flex items-start justify-between mb-2'>" +
+          "<div><span class='mr-1'>" + meta.emoji + "</span><span class='font-semibold text-slate-100'>" + c.name + "</span> <span class='text-xs text-slate-500 ml-1'>" + meta.label + (inv ? " · 越低越好" : "") + "</span></div>" +
+          "<span class='text-[10px] font-bold px-2 py-0.5 rounded " + vCls + "'>" + verdict + "</span>" +
+        "</div>" +
+        "<div class='flex items-center justify-between font-mono mb-1'>" +
+          "<div><span class='text-xs text-slate-500'>你 </span><span class='text-lg font-bold " + bigClass + "'>" + fmtVal(myVal, isRate) + "</span> " + paceLabel(myVal, myAvg, inv) + "</div>" +
+          "<div class='text-slate-600 text-xs'>VS</div>" +
+          "<div class='text-right'><span class='text-xs text-slate-500'>對手 </span><span class='text-lg " + oppBigClass + "'>" + fmtVal(oppVal, isRate) + "</span> " + paceLabel(oppVal, oppAvg, inv) + "</div>" +
+        "</div>" +
+        contribHtml +
+        "</div>";
+    });
+    html += "</div>";
+    bdDiv.innerHTML = html;
   })();
 
   // --- Waivers: split by position type, show both batter/pitcher rows with appropriate columns ---

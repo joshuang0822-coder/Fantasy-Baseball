@@ -675,6 +675,7 @@
         <button class="sc-sub-btn px-3 py-1.5 text-xs font-semibold rounded-md bg-slate-100 text-slate-700" data-sub="sc-sprint">跑壘速度</button>
         <button class="sc-sub-btn px-3 py-1.5 text-xs font-semibold rounded-md bg-slate-100 text-slate-700" data-sub="sc-trade">買低/賣高</button>
         <button class="sc-sub-btn px-3 py-1.5 text-xs font-semibold rounded-md bg-slate-100 text-slate-700" data-sub="sc-undervalued">💎 被低估</button>
+        <button class="sc-sub-btn px-3 py-1.5 text-xs font-semibold rounded-md bg-slate-100 text-slate-700" data-sub="sc-pitcher-yoy">🔬 投手實力 (今年 vs 去年)</button>
         <div id="sc-updated" class="ml-auto text-xs text-slate-500"></div>
       </div>
     </div>
@@ -728,6 +729,21 @@
         <p class="text-xs text-slate-500 mt-1">Statcast Score ≥ 70 但聯盟持有率 &lt; 30% ‧ 對手還沒發現的 hidden gem</p>
       </div>
       <div class="overflow-x-auto"><table id="sc-undervalued-table"></table></div>
+    </div>
+
+    <div id="sc-pitcher-yoy" class="sc-sub-panel hidden bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+      <div class="px-4 py-3 border-b border-slate-200 flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <h3 class="font-semibold">🔬 投手實力對比 — 今年 vs 去年</h3>
+          <p class="text-xs text-slate-500 mt-1">FB 球速 / Whiff% / xERA / K% 的逐年變化 → 判斷「真進步」vs「運氣好」</p>
+        </div>
+        <div class="flex gap-1 text-xs">
+          <button class="yoy-filter px-2 py-1 rounded bg-slate-800 text-white" data-yoy="mine">我的陣容</button>
+          <button class="yoy-filter px-2 py-1 rounded bg-slate-100 text-slate-700" data-yoy="waiver">自由球員</button>
+          <button class="yoy-filter px-2 py-1 rounded bg-slate-100 text-slate-700" data-yoy="all">全聯盟 (Top 30)</button>
+        </div>
+      </div>
+      <div class="overflow-x-auto"><table id="sc-pitcher-yoy-table"></table></div>
     </div>
   </div>
 
@@ -2012,19 +2028,36 @@ var PITCHER_COLSPAN = 19;
         verdict = "平手"; vCls = "bg-slate-700/40 text-slate-300";
       }
 
-      // Pace comparison: this week vs my season per-week avg
+      // Pace comparison — but week is in progress, so prorate count stats by elapsed days
+      // Yahoo MLB weeks run Mon-Sun. Count "today" as the day fraction of the week.
+      var d = new Date();
+      var dow = d.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+      var elapsedDays = dow === 0 ? 7 : dow; // Mon=1 day done .. Sun=7 days done
+      var weekFrac = Math.min(7, Math.max(1, elapsedDays)) / 7;
+
       var myAvg = avgPerWeek(myKey, sid);
       var oppAvg = avgPerWeek(oppKey, sid);
       function paceLabel(cur, avg, isInv) {
         if (cur === null || avg === null || avg === 0) return "";
-        var ratio = cur / avg;
-        // For inverse, "better" means cur < avg (lower)
-        if (isInv) {
-          if (ratio < 0.85) return "<span class='text-green-400'>(↑超常)</span>";
-          if (ratio > 1.15) return "<span class='text-red-400'>(↓失常)</span>";
+        // Count stats: 預期 = 週均 × (已過天數/7)
+        // Rate stats: 直接和週均比
+        var expected, lowThresh, highThresh;
+        if (isRate) {
+          expected = avg;
+          lowThresh = 0.75; highThresh = 1.25;
         } else {
-          if (ratio > 1.15) return "<span class='text-green-400'>(↑超常)</span>";
-          if (ratio < 0.85) return "<span class='text-red-400'>(↓失常)</span>";
+          expected = avg * weekFrac;
+          lowThresh = 0.75; highThresh = 1.25;
+        }
+        if (expected === 0) return "";
+        var ratio = cur / expected;
+        var tip = "現值 " + cur.toFixed(2) + " vs 預期進度 " + expected.toFixed(2) + " (週均 " + avg.toFixed(2) + (isRate ? "" : " × " + (weekFrac*100).toFixed(0) + "%") + ")";
+        if (isInv) {
+          if (ratio < lowThresh) return "<span class='text-green-400' title='" + tip + "'>(↑超常)</span>";
+          if (ratio > highThresh) return "<span class='text-red-400' title='" + tip + "'>(↓失常)</span>";
+        } else {
+          if (ratio > highThresh) return "<span class='text-green-400' title='" + tip + "'>(↑超常)</span>";
+          if (ratio < lowThresh) return "<span class='text-red-400' title='" + tip + "'>(↓失常)</span>";
         }
         return "<span class='text-slate-500'>(正常)</span>";
       }
@@ -2401,6 +2434,158 @@ var PITCHER_COLSPAN = 19;
 
     sel.addEventListener("change", function(e){ render(e.target.value); });
     if (others.length > 0) render(others[0].team_key);
+  })();
+
+  // --- Pitcher year-over-year skill comparison (real improvement vs luck) ---
+  (function buildPitcherYoY() {
+    var table = document.getElementById("sc-pitcher-yoy-table");
+    if (!table) return;
+    var prevPitchersMap = (window.STATCAST_DATA && window.STATCAST_DATA.prev_pitchers) || {};
+    var prevYearLabel = (window.STATCAST_DATA && window.STATCAST_DATA.prev_year) || "去年";
+    var curYearLabel = (window.STATCAST_DATA && window.STATCAST_DATA.year) || "今年";
+
+    function buildList(filter) {
+      // Roster pitchers
+      var rosterPitchers = (D.roster || []).filter(function(p){ return isPitcherPlayer(p, allPitchers, allBatters); }).map(function(p){ return { name: p.name, pos: p.pos, source: "陣容" }; });
+      var waiverPitchers = (D.waivers || []).filter(function(w){
+        return /SP|RP|P/.test(w.pos || "") || isPitcherPlayer(w, allPitchers, allBatters);
+      }).map(function(w){ return { name: w.name, pos: w.pos, source: "自由" }; });
+
+      var list = [];
+      if (filter === "mine") list = rosterPitchers;
+      else if (filter === "waiver") list = waiverPitchers;
+      else {
+        // all = top 30 pitchers by current year score (need both years' data)
+        var arr = [];
+        for (var k in allPitchers) {
+          var p = allPitchers[k];
+          if (!p || (p.bf||0) < 30) continue;
+          arr.push({ name: p.name, pos: "", source: "" });
+        }
+        list = arr.slice(0, 60);
+      }
+      return list;
+    }
+
+    function fmtDelta(d, decimals, isInverse) {
+      if (isNaN(d) || d === null) return "—";
+      var sign = d > 0 ? "+" : "";
+      var color = "text-slate-400";
+      if (isInverse) {
+        if (d <= -0.05) color = "text-green-400";
+        else if (d >= 0.05) color = "text-red-400";
+      } else {
+        if (d >= 0.05) color = "text-green-400";
+        else if (d <= -0.05) color = "text-red-400";
+      }
+      return "<span class='" + color + " font-mono'>" + sign + d.toFixed(decimals) + "</span>";
+    }
+
+    function verdict(cur, prev) {
+      if (!cur || !prev) return { text: "—", cls: "text-slate-500" };
+      var velo_d = (cur.fb_velo || 0) - (prev.fb_velo || 0);
+      var whiff_d = (cur.whiff_pct || 0) - (prev.whiff_pct || 0);
+      var k_d = (cur.k_pct || 0) - (prev.k_pct || 0);
+      var xera_d = (cur.xera || 0) - (prev.xera || 0);  // negative = improving
+      var era_xera_gap = (cur.era || 0) - (cur.xera || 0); // negative = ERA below xERA = lucky
+
+      var realPositive = (velo_d >= 0.5 ? 1 : 0) + (whiff_d >= 1.5 ? 1 : 0) + (k_d >= 1.5 ? 1 : 0) + (xera_d <= -0.3 ? 1 : 0);
+      var realNegative = (velo_d <= -0.5 ? 1 : 0) + (whiff_d <= -1.5 ? 1 : 0) + (k_d <= -1.5 ? 1 : 0) + (xera_d >= 0.3 ? 1 : 0);
+
+      // ERA much better than xERA = currently lucky
+      var lucky = era_xera_gap <= -0.7;
+
+      if (realPositive >= 2 && realNegative === 0) return { text: "🟢 真進步", cls: "text-green-400" };
+      if (realNegative >= 2 && realPositive === 0) return { text: "🔴 退化", cls: "text-red-400" };
+      if (lucky && realPositive === 0) return { text: "🟡 運氣好", cls: "text-amber-400" };
+      if (era_xera_gap >= 0.7 && realNegative === 0) return { text: "🔵 運氣差", cls: "text-cyan-400" };
+      return { text: "持平", cls: "text-slate-400" };
+    }
+
+    function render(filter) {
+      var list = buildList(filter);
+      var rows = [];
+      list.forEach(function(item) {
+        var key = normName(item.name);
+        var cur = allPitchers[key];
+        var prev = prevPitchersMap[key];
+        if (!cur) return;
+        rows.push({ item: item, cur: cur, prev: prev });
+      });
+      // Sort by underlying improvement direction (real progress first, then declining last)
+      rows.sort(function(a,b) {
+        var aDelta = (a.cur.k_pct||0) - ((a.prev||{}).k_pct||0) + ((a.cur.whiff_pct||0) - ((a.prev||{}).whiff_pct||0)) - ((a.cur.xera||0) - ((a.prev||{}).xera||0));
+        var bDelta = (b.cur.k_pct||0) - ((b.prev||{}).k_pct||0) + ((b.cur.whiff_pct||0) - ((b.prev||{}).whiff_pct||0)) - ((b.cur.xera||0) - ((b.prev||{}).xera||0));
+        return bDelta - aDelta;
+      });
+
+      var head = "<thead><tr>" +
+        "<th>投手</th><th>來源</th><th>位置</th>" +
+        "<th class='text-right'>FB 球速</th>" +
+        "<th class='text-right'>Whiff%</th>" +
+        "<th class='text-right'>K%</th>" +
+        "<th class='text-right'>BB%</th>" +
+        "<th class='text-right'>xERA</th>" +
+        "<th class='text-right'>ERA 今</th>" +
+        "<th class='text-right'>HH% 被</th>" +
+        "<th>判定</th>" +
+        "</tr></thead>";
+
+      var body = "<tbody>";
+      rows.forEach(function(r) {
+        var c = r.cur, p = r.prev || {};
+        var v = verdict(c, p);
+        var hasPrev = !!r.prev;
+        function dual(cur, prev, decimals, isPct) {
+          var cur_str = (cur === null || isNaN(cur)) ? "—" : (isPct ? cur.toFixed(decimals) + "%" : cur.toFixed(decimals));
+          if (!hasPrev || prev === undefined || isNaN(prev) || prev === 0) {
+            return "<div class='font-mono'>" + cur_str + "</div><div class='text-[10px] text-slate-600'>(去年無)</div>";
+          }
+          var prev_str = isPct ? prev.toFixed(decimals) + "%" : prev.toFixed(decimals);
+          var d = cur - prev;
+          var dColor = d > 0 ? "text-green-400" : d < 0 ? "text-red-400" : "text-slate-500";
+          var dSign = d > 0 ? "+" : "";
+          return "<div class='font-mono'>" + cur_str + "</div><div class='text-[10px] " + dColor + " font-mono'>" + dSign + d.toFixed(decimals) + " <span class='text-slate-500'>(" + prev_str + ")</span></div>";
+        }
+        // For inverse stats (xERA, ERA, BB%, HH%), invert the color
+        function dualInv(cur, prev, decimals, isPct) {
+          var cur_str = (cur === null || isNaN(cur)) ? "—" : (isPct ? cur.toFixed(decimals) + "%" : cur.toFixed(decimals));
+          if (!hasPrev || prev === undefined || isNaN(prev) || prev === 0) {
+            return "<div class='font-mono'>" + cur_str + "</div><div class='text-[10px] text-slate-600'>(去年無)</div>";
+          }
+          var prev_str = isPct ? prev.toFixed(decimals) + "%" : prev.toFixed(decimals);
+          var d = cur - prev;
+          var dColor = d < 0 ? "text-green-400" : d > 0 ? "text-red-400" : "text-slate-500";
+          var dSign = d > 0 ? "+" : "";
+          return "<div class='font-mono'>" + cur_str + "</div><div class='text-[10px] " + dColor + " font-mono'>" + dSign + d.toFixed(decimals) + " <span class='text-slate-500'>(" + prev_str + ")</span></div>";
+        }
+
+        body += "<tr>" +
+          "<td class='font-medium'>" + r.item.name + "</td>" +
+          "<td class='text-xs text-slate-400'>" + r.item.source + "</td>" +
+          "<td class='text-xs text-slate-400 font-mono'>" + (r.item.pos||"") + "</td>" +
+          "<td class='text-right'>" + dual(c.fb_velo||0, p.fb_velo, 1) + "</td>" +
+          "<td class='text-right'>" + dual(c.whiff_pct||0, p.whiff_pct, 1, true) + "</td>" +
+          "<td class='text-right'>" + dual(c.k_pct||0, p.k_pct, 1, true) + "</td>" +
+          "<td class='text-right'>" + dualInv(c.bb_pct||0, p.bb_pct, 1, true) + "</td>" +
+          "<td class='text-right'>" + dualInv(c.xera||0, p.xera, 2) + "</td>" +
+          "<td class='text-right'><div class='font-mono'>" + (c.era||0).toFixed(2) + "</div><div class='text-[10px] text-slate-500'>vs xERA " + (c.era - c.xera).toFixed(2) + "</div></td>" +
+          "<td class='text-right'>" + dualInv(c.hh_pct_against||0, p.hh_pct_against, 1, true) + "</td>" +
+          "<td class='font-semibold " + v.cls + "'>" + v.text + "</td>" +
+          "</tr>";
+      });
+      body += "</tbody>";
+      table.innerHTML = head + body;
+    }
+
+    document.querySelectorAll(".yoy-filter").forEach(function(btn) {
+      btn.addEventListener("click", function() {
+        document.querySelectorAll(".yoy-filter").forEach(function(b){ b.classList.remove("bg-slate-800","text-white"); b.classList.add("bg-slate-100","text-slate-700"); });
+        btn.classList.add("bg-slate-800","text-white"); btn.classList.remove("bg-slate-100","text-slate-700");
+        render(btn.dataset.yoy);
+      });
+    });
+    render("mine");
   })();
 
   // --- Waivers: split by position type, show both batter/pitcher rows with appropriate columns ---

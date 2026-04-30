@@ -765,10 +765,15 @@
     <div class="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
       <div class="px-4 py-3 border-b border-slate-200 flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h3 class="font-semibold">📋 各隊本週數據 + 排名</h3>
+          <h3 class="font-semibold">📋 各隊數據 + 排名</h3>
           <p class="text-xs text-slate-500 mt-1">每格顯示「<span class='text-cyan-300'>數值</span> <span class='text-slate-500'>(聯盟 #排名)</span>」 ‧ 綠色 = 前 3、紅色 = 後 3、青色背景 = 你的隊伍</p>
         </div>
-        <select id="weekStatsWeekSelect" class="text-sm border border-slate-300 rounded px-2 py-1"></select>
+        <div class="flex gap-1 items-center text-xs">
+          <button class="ws-mode-btn px-2 py-1 rounded bg-slate-800 text-white" data-mode="this">本週</button>
+          <button class="ws-mode-btn px-2 py-1 rounded bg-slate-100 text-slate-700" data-mode="avg">週均</button>
+          <button class="ws-mode-btn px-2 py-1 rounded bg-slate-100 text-slate-700" data-mode="total">賽季累計</button>
+          <select id="weekStatsWeekSelect" class="ml-2 text-sm border border-slate-300 rounded px-2 py-1"></select>
+        </div>
       </div>
       <div class="overflow-x-auto"><table id="weekStatsTable"></table></div>
     </div>
@@ -2602,7 +2607,7 @@ var PITCHER_COLSPAN = 19;
     render("mine");
   })();
 
-  // --- Weekly stats + ranks table ---
+  // --- Weekly stats + ranks table (3 modes: this week / weekly avg / season total) ---
   (function buildWeekStatsTable() {
     var weekly = D.weekly_stats || [];
     var cats = D.stat_categories || [];
@@ -2610,11 +2615,11 @@ var PITCHER_COLSPAN = 19;
     var sel = document.getElementById("weekStatsWeekSelect");
     var table = document.getElementById("weekStatsTable");
     if (!sel || !table) return;
-    if (weekly.length === 0 || cats.length === 0) {
-      table.innerHTML = "<tbody><tr><td class='text-center py-6 text-slate-500'>等下次跑 連線.bat 才會有週數據</td></tr></tbody>";
+    if (cats.length === 0) {
+      table.innerHTML = "<tbody><tr><td class='text-center py-6 text-slate-500'>無資料</td></tr></tbody>";
       return;
     }
-    // Populate week dropdown
+    // Populate week dropdown (used in 'this' mode only)
     sel.innerHTML = "";
     weekly.slice().reverse().forEach(function(w) {
       var o = document.createElement("option");
@@ -2625,15 +2630,17 @@ var PITCHER_COLSPAN = 19;
 
     var standingsForChart = standings.slice().sort(function(a,b){ return (a.rank||999) - (b.rank||999); });
     var numTeams = standingsForChart.length;
+    var rateCats = {"3":1,"55":1,"26":1,"27":1,"56":1};
 
-    function fmtVal(v, isRate) {
+    function fmtVal(v, isRate, isAvg) {
       if (v === null || v === undefined || isNaN(v)) return "—";
       var n = Number(v);
       if (isRate) {
         if (n < 1 && n > 0) return n.toFixed(3);
         return n.toFixed(2);
       }
-      return Math.round(n);
+      // count stat: integer for this/total, 1 decimal for avg
+      return isAvg ? n.toFixed(1) : String(Math.round(n));
     }
 
     function rankColor(rank, n) {
@@ -2642,24 +2649,53 @@ var PITCHER_COLSPAN = 19;
       return "text-slate-300";
     }
 
-    function render(weekNum) {
-      var weekData = weekly.find(function(w){ return w.week === Number(weekNum); });
-      if (!weekData || !weekData.teams) {
-        table.innerHTML = "<tbody><tr><td class='text-center py-6 text-slate-500'>本週尚無資料</td></tr></tbody>";
-        return;
+    // Build value-by-team for a given mode
+    function getValueMap(mode, weekNum) {
+      // returns { team_key: { stat_id: value } }
+      var out = {};
+      if (mode === "this") {
+        var w = weekly.find(function(x){ return x.week === Number(weekNum); });
+        if (w && w.teams) out = w.teams;
+      } else if (mode === "avg") {
+        // average across all completed weeks
+        standingsForChart.forEach(function(t){
+          out[t.team_key] = {};
+          cats.forEach(function(c) {
+            var sid = c.stat_id;
+            var vals = [];
+            weekly.forEach(function(w) {
+              var v = w.teams && w.teams[t.team_key] && w.teams[t.team_key][sid];
+              if (v !== undefined && v !== null && v !== "" && !isNaN(Number(v))) vals.push(Number(v));
+            });
+            if (vals.length > 0) out[t.team_key][sid] = vals.reduce(function(a,b){return a+b;}, 0) / vals.length;
+          });
+        });
+      } else {  // total
+        standingsForChart.forEach(function(t) {
+          out[t.team_key] = {};
+          cats.forEach(function(c) {
+            var sid = c.stat_id;
+            var entry = (t.category_stats || {})[sid];
+            if (entry && entry.value !== undefined) out[t.team_key][sid] = Number(entry.value);
+          });
+        });
       }
-      var teamsMap = weekData.teams;
+      return out;
+    }
 
-      // Compute rank per category across all teams
-      // For inverse cats (ERA/WHIP), lower = better
-      var rateCats = {"3":1,"55":1,"26":1,"27":1,"56":1};
+    var currentMode = "this";
+    function render() {
+      var weekNum = sel.value || D.league.current_week;
+      var valMap = getValueMap(currentMode, weekNum);
+
+      // Compute rank per cat
       var ranksByCat = {};
       cats.forEach(function(c) {
         var sid = c.stat_id;
         var inv = c.inverse;
         var entries = standingsForChart.map(function(t) {
-          var v = teamsMap[t.team_key] && teamsMap[t.team_key][sid];
-          return { tk: t.team_key, v: (v === undefined || v === null || v === "") ? null : Number(v) };
+          var v = valMap[t.team_key] && valMap[t.team_key][sid];
+          return { tk: t.team_key, v: (v === undefined || v === null) ? null : Number(v) };
         });
         var ranked = entries.slice().filter(function(e){ return e.v !== null && !isNaN(e.v); });
         ranked.sort(function(a,b){ return inv ? a.v - b.v : b.v - a.v; });
@@ -2668,14 +2704,15 @@ var PITCHER_COLSPAN = 19;
         ranksByCat[sid] = rank;
       });
 
-      // Build header
-      var head = "<thead><tr><th class='text-left bg-slate-50' style='position:sticky;left:0;z-index:11;background:var(--bg-2)'>隊伍</th>";
+      // Header
+      var head = "<thead><tr><th class='text-left' style='position:sticky;left:0;z-index:11;background:var(--bg-2)'>隊伍</th>";
       cats.forEach(function(c) {
         head += "<th class='text-center'>" + c.name + (c.inverse ? "<span class='text-[8px] text-slate-500 block'>低=好</span>" : "") + "</th>";
       });
+      head += "<th class='text-center'>強項</th><th class='text-center'>弱項</th>";
       head += "</tr></thead>";
 
-      // Build rows — sorted by season rank
+      // Rows
       var body = "<tbody>";
       standingsForChart.forEach(function(t) {
         var isMe = t.team === D.my_team;
@@ -2685,28 +2722,47 @@ var PITCHER_COLSPAN = 19;
           "<div>" + (t.team || "") + "</div>" +
           "<div class='text-[10px] text-slate-500'>季排 #" + t.rank + "</div>" +
           "</td>";
+        var teamRanks = [];
         cats.forEach(function(c) {
           var sid = c.stat_id;
-          var v = teamsMap[t.team_key] && teamsMap[t.team_key][sid];
+          var v = valMap[t.team_key] && valMap[t.team_key][sid];
           var rank = ranksByCat[sid][t.team_key];
           var isRate = !!rateCats[sid];
-          var valStr = fmtVal(v, isRate);
+          var valStr = fmtVal(v, isRate, currentMode === "avg" && !isRate);
           var rankStr = rank ? "#" + rank : "—";
           var rankCls = rank ? rankColor(rank, numTeams) : "text-slate-500";
+          if (rank) teamRanks.push({ name: c.name, rank: rank });
           body += "<td class='text-center'>" +
             "<div class='font-mono text-sm'>" + valStr + "</div>" +
             "<div class='text-[10px] " + rankCls + " font-mono'>" + rankStr + "</div>" +
             "</td>";
         });
+        // Strong/weak summary for the team
+        teamRanks.sort(function(a,b){ return a.rank - b.rank; });
+        var strong = teamRanks.slice(0, 3).map(function(x){ return x.name + " (#" + x.rank + ")"; }).join("<br>");
+        var weak = teamRanks.slice(-3).reverse().map(function(x){ return x.name + " (#" + x.rank + ")"; }).join("<br>");
+        body += "<td class='text-xs text-green-400 font-mono'>" + strong + "</td>";
+        body += "<td class='text-xs text-red-400 font-mono'>" + weak + "</td>";
         body += "</tr>";
       });
       body += "</tbody>";
       table.innerHTML = head + body;
     }
 
-    sel.addEventListener("change", function(e){ render(e.target.value); });
-    // Default to current week
-    render(D.league.current_week || (weekly[weekly.length-1] && weekly[weekly.length-1].week));
+    // Mode buttons
+    document.querySelectorAll(".ws-mode-btn").forEach(function(btn) {
+      btn.addEventListener("click", function() {
+        document.querySelectorAll(".ws-mode-btn").forEach(function(b){ b.classList.remove("bg-slate-800","text-white"); b.classList.add("bg-slate-100","text-slate-700"); });
+        btn.classList.add("bg-slate-800","text-white"); btn.classList.remove("bg-slate-100","text-slate-700");
+        currentMode = btn.dataset.mode;
+        // Hide week selector when not in 'this' mode
+        sel.style.display = (currentMode === "this") ? "" : "none";
+        render();
+      });
+    });
+    sel.addEventListener("change", render);
+    sel.value = D.league.current_week;
+    render();
   })();
 
   // --- Waivers: split by position type, show both batter/pitcher rows with appropriate columns ---

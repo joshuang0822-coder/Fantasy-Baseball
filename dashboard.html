@@ -775,6 +775,10 @@
           <select id="weekStatsWeekSelect" class="ml-2 text-sm border border-slate-300 rounded px-2 py-1"></select>
         </div>
       </div>
+      <div class="px-4 py-3 border-b border-slate-200">
+        <p class="text-xs text-slate-500 mb-2">🔥 強弱熱圖 ‧ 綠 = 名次靠前、紅 = 名次靠後 ‧ 一眼看出每隊強在哪、弱在哪</p>
+        <div class="overflow-x-auto"><table id="leagueHeatmap"></table></div>
+      </div>
       <div class="overflow-x-auto"><table id="weekStatsTable"></table></div>
     </div>
   </div>
@@ -2683,6 +2687,55 @@ var PITCHER_COLSPAN = 19;
       return out;
     }
 
+    // Distinct colors per team (HSL evenly spaced)
+    var teamColors = {};
+    standingsForChart.forEach(function(t, i) {
+      var hue = Math.round((360 / standingsForChart.length) * i);
+      teamColors[t.team_key] = "hsl(" + hue + ", 65%, 55%)";
+    });
+
+    function rankToColor(rank, n) {
+      // rank 1 → green (hue 130), rank n → red (hue 0). Lightness varies for contrast.
+      var t = (rank - 1) / Math.max(1, n - 1);  // 0..1
+      var hue = Math.round(130 * (1 - t));  // 130 (green) → 0 (red)
+      var sat = 65;
+      var light = 28 + (1 - Math.abs(0.5 - t) * 2) * 6; // brighter mid (slightly), ~28-34
+      return "hsl(" + hue + "," + sat + "%," + light + "%)";
+    }
+
+    function renderHeatmap(ranksByCat) {
+      var heatTable = document.getElementById("leagueHeatmap");
+      if (!heatTable) return;
+      var head = "<thead><tr><th class='text-left' style='padding:6px 8px;font-size:10px;background:var(--bg-2);position:sticky;left:0;z-index:11'>隊伍</th>";
+      cats.forEach(function(c) {
+        head += "<th class='text-center' style='padding:6px 4px;font-size:10px;min-width:46px'>" + c.name + (c.inverse ? "<span class='text-[8px] block text-slate-500'>↓</span>" : "") + "</th>";
+      });
+      head += "</tr></thead>";
+
+      var body = "<tbody>";
+      standingsForChart.forEach(function(t) {
+        var isMe = t.team === D.my_team;
+        var nameBg = isMe ? "rgba(34,211,238,0.18)" : "var(--bg-2)";
+        var nameBorder = isMe ? "border-left:3px solid var(--neon-cyan)" : "";
+        body += "<tr>";
+        body += "<td style='padding:6px 8px;position:sticky;left:0;z-index:9;background:" + nameBg + ";" + nameBorder + ";font-size:12px;font-weight:600;white-space:nowrap'>" +
+          (t.team || "") + " <span style='color:#64748b;font-size:10px;font-weight:400'>#" + t.rank + "</span></td>";
+        cats.forEach(function(c) {
+          var rank = ranksByCat[c.stat_id][t.team_key];
+          if (!rank) {
+            body += "<td style='padding:0;text-align:center;background:#1e293b;color:#475569;font-family:monospace;font-size:12px'>—</td>";
+            return;
+          }
+          var bg = rankToColor(rank, numTeams);
+          var fontColor = (rank <= 3 || rank >= numTeams - 1) ? "#fff" : "#f1f5f9";
+          body += "<td style='padding:0;text-align:center;background:" + bg + ";color:" + fontColor + ";font-family:JetBrains Mono,monospace;font-size:13px;font-weight:700;height:36px'>#" + rank + "</td>";
+        });
+        body += "</tr>";
+      });
+      body += "</tbody>";
+      heatTable.innerHTML = head + body;
+    }
+
     var currentMode = "this";
     function render() {
       var weekNum = sel.value || D.league.current_week;
@@ -2703,6 +2756,8 @@ var PITCHER_COLSPAN = 19;
         ranked.forEach(function(e, i) { rank[e.tk] = i + 1; });
         ranksByCat[sid] = rank;
       });
+
+      renderHeatmap(ranksByCat);
 
       // Header
       var head = "<thead><tr><th class='text-left' style='position:sticky;left:0;z-index:11;background:var(--bg-2)'>隊伍</th>";

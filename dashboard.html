@@ -538,6 +538,7 @@
     <button class="tab-btn px-4 py-2 text-sm font-medium rounded-t-md text-slate-600 hover:bg-slate-100" data-tab="statcast">📊 Statcast 進階</button>
     <button class="tab-btn px-4 py-2 text-sm font-medium rounded-t-md text-slate-600 hover:bg-slate-100" data-tab="trade">🤝 交易建議</button>
     <button class="tab-btn px-4 py-2 text-sm font-medium rounded-t-md text-slate-600 hover:bg-slate-100" data-tab="weekstats">📋 本週數據排名</button>
+    <button class="tab-btn px-4 py-2 text-sm font-medium rounded-t-md text-slate-600 hover:bg-slate-100" data-tab="stream">🎯 明日 Stream</button>
   </div>
 
   <div id="noData" class="hidden bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-900 mb-3">尚無 Yahoo 資料 — Statcast 分頁仍可使用。</div>
@@ -758,6 +759,37 @@
         <select id="tradeTeamSelect" class="text-sm border border-slate-300 rounded px-2 py-1 min-w-[200px]"></select>
       </div>
       <div id="tradeBody" class="p-4"></div>
+    </div>
+  </div>
+
+  <div id="tab-stream" class="tab-panel hidden">
+    <div class="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden mb-4">
+      <div class="px-4 py-3 border-b border-slate-200 flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h3 class="font-semibold">🎯 明日先發 Stream Pick 推薦</h3>
+          <p class="text-xs text-slate-500 mt-1">根據投手 Statcast(今/去年) + 對手打線火力 → 綜合評分排序 ‧ 高分 = 安全 stream</p>
+        </div>
+        <div class="flex gap-3 items-center text-xs">
+          <div class="flex gap-1">
+            <button class="stream-date-btn px-3 py-1 rounded bg-slate-800 text-white" data-day="1">明天</button>
+            <button class="stream-date-btn px-3 py-1 rounded bg-slate-100 text-slate-700" data-day="2">後天</button>
+            <button class="stream-date-btn px-3 py-1 rounded bg-slate-100 text-slate-700" data-day="all">兩天合併</button>
+          </div>
+          <div class="flex gap-1">
+            <button class="stream-own-btn px-3 py-1 rounded bg-slate-800 text-white" data-own="fa">只看 FA</button>
+            <button class="stream-own-btn px-3 py-1 rounded bg-slate-100 text-slate-700" data-own="all">全部</button>
+          </div>
+        </div>
+      </div>
+      <div class="overflow-x-auto"><table id="streamTable"></table></div>
+    </div>
+
+    <div class="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+      <div class="px-4 py-3 border-b border-slate-200">
+        <h3 class="font-semibold">⚾ MLB 30 隊打擊火力排行</h3>
+        <p class="text-xs text-slate-500 mt-1">用 Statcast 個人資料加權加總算出 ‧ 紅 = 強打火爐(投手地獄)、綠 = 打線弱(stream 好對手)</p>
+      </div>
+      <div class="overflow-x-auto"><table id="mlbTeamHeatmap"></table></div>
     </div>
   </div>
 
@@ -2818,6 +2850,229 @@ var PITCHER_COLSPAN = 19;
     sel.addEventListener("change", render);
     sel.value = D.league.current_week;
     render();
+  })();
+
+  // --- Stream picker (probable starters tomorrow + MLB team heatmap) ---
+  (function buildStreamPicker() {
+    var S = window.STATCAST_DATA || {};
+    var probables = S.probables || [];
+    var teamBatting = S.team_batting || [];
+    var allP = S.all_pitchers || {};
+    var prevP = S.prev_pitchers || {};
+    var streamTable = document.getElementById("streamTable");
+    var heatTable = document.getElementById("mlbTeamHeatmap");
+    if (!streamTable || !heatTable) return;
+
+    if (teamBatting.length === 0 || probables.length === 0) {
+      streamTable.innerHTML = "<tbody><tr><td class='text-center py-6 text-slate-500'>下次跑 抓Statcast.bat 後會有資料</td></tr></tbody>";
+      heatTable.innerHTML = "";
+      return;
+    }
+
+    // Sort team batting by OPS desc → assign rank 1..N (1=strongest)
+    var tbSorted = teamBatting.slice().sort(function(a,b){ return (b.ops||0) - (a.ops||0); });
+    var oppRankMap = {};
+    var oppByTid = {};
+    tbSorted.forEach(function(t, i) { oppRankMap[t.team_id] = i + 1; oppByTid[t.team_id] = t; });
+    var nT = tbSorted.length;
+
+    // For each probable, compute composite score
+    function pitcherTier(p) {
+      if (!p) return 0;
+      // Higher xERA = worse, higher Whiff/K = better, lower BB = better
+      // Normalize each metric to 0-100 then weighted average
+      var xera = p.xera || 5;
+      var whiff = p.whiff_pct || 20;
+      var kpct = p.k_pct || 18;
+      var bbpct = p.bb_pct || 9;
+      var fb = p.fb_velo || 91;
+      // Each component score (rough — based on league context)
+      var xeraScore = Math.max(0, Math.min(100, (5.5 - xera) * 30));   // 2.0 → 105 → 100, 5.5 → 0
+      var whiffScore = Math.max(0, Math.min(100, (whiff - 18) * 4));   // 18→0, 43→100
+      var kScore = Math.max(0, Math.min(100, (kpct - 14) * 4));        // 14→0, 39→100
+      var bbScore = Math.max(0, Math.min(100, (12 - bbpct) * 8));      // 12→0, 0→96
+      var veloScore = Math.max(0, Math.min(100, (fb - 90) * 12));      // 90→0, 98.3→100
+      return Math.round(xeraScore * 0.30 + whiffScore * 0.25 + kScore * 0.20 + bbScore * 0.15 + veloScore * 0.10);
+    }
+
+    function oppMatchupTier(opp_team_id) {
+      // Higher rank num = weaker hitter = better matchup for stream
+      var rank = oppRankMap[opp_team_id];
+      if (!rank) return 50;
+      return Math.round(((rank - 1) / Math.max(1, nT - 1)) * 100);  // rank 1 (best hitter)→0 (worst matchup), rank N→100
+    }
+
+    function rankToColor(rank, n, invert) {
+      // invert=true → rank 1 = red (strong hitter = bad for pitcher)
+      var t = (rank - 1) / Math.max(1, n - 1);
+      var hue = invert ? Math.round(130 * t) : Math.round(130 * (1 - t));
+      return "hsl(" + hue + ",65%,30%)";
+    }
+
+    function norm(s) {
+      if (!s) return "";
+      // Strip Yahoo-style "(Batter)", "(Pitcher)", "(SP)", etc. so 大谷 matches across forms
+      s = s.replace(/\([^)]*\)/g, "");
+      if (s.indexOf(",") >= 0) { var p = s.split(",").map(function(x){return x.trim();}); s = p[1] + " " + p[0]; }
+      s = s.normalize("NFD").replace(/[̀-ͯ]/g, "");
+      return s.toLowerCase().replace(/[^a-z0-9]/g, "").trim();
+    }
+
+    // Build set of all rostered (owned) player keys across the league
+    var ownedKeys = {};
+    var ownedByTeam = {};  // key → team name (for display)
+    Object.keys(D.all_rosters || {}).forEach(function(tk) {
+      var teamName = (D.standings.find(function(t){ return t.team_key === tk; }) || {}).team || tk;
+      (D.all_rosters[tk] || []).forEach(function(p) {
+        var k = norm(p.name);
+        if (k) {
+          ownedKeys[k] = true;
+          // If multiple teams own (e.g., Ohtani Batter + Pitcher), keep both team names
+          ownedByTeam[k] = ownedByTeam[k] ? ownedByTeam[k] + " / " + teamName : teamName;
+        }
+      });
+    });
+
+    var currentOwn = "fa";
+
+    function renderStream(filter) {
+      var list = probables.slice();
+      if (filter === "1" || filter === "2") {
+        var today = new Date();
+        var target = new Date(today.getTime() + Number(filter) * 86400000);
+        var dStr = target.toISOString().slice(0,10);
+        list = list.filter(function(p){ return p.date === dStr; });
+      }
+      // Filter by ownership
+      if (currentOwn === "fa") {
+        list = list.filter(function(p){ return !ownedKeys[norm(p.pitcher_name)]; });
+      }
+      // Compute scores
+      list = list.map(function(pr) {
+        var key = norm(pr.pitcher_name);
+        var p = allP[key]; var pp = prevP[key];
+        var pitTier = pitcherTier(p);
+        var prevPitTier = pitcherTier(pp);
+        var matchupTier = oppMatchupTier(pr.opp_team_id);
+        // Average current + prev pitcher score (weight current 70%, prev 30% if exists)
+        var pitchAvg = pp ? (pitTier * 0.7 + prevPitTier * 0.3) : pitTier;
+        var composite = Math.round(pitchAvg * 0.6 + matchupTier * 0.4);
+        return Object.assign({}, pr, { p: p, pp: pp, pitTier: pitTier, prevPitTier: prevPitTier, matchupTier: matchupTier, composite: composite });
+      }).filter(function(x){ return x.p || x.pp; }); // need at least some data
+      list.sort(function(a,b){ return b.composite - a.composite; });
+
+      var head = "<thead><tr>" +
+        "<th class='text-left'>📅</th>" +
+        "<th class='text-left'>投手</th>" +
+        "<th>歸屬</th>" +
+        "<th>vs</th>" +
+        "<th>對手 (OPS #)</th>" +
+        "<th class='text-right'>xERA</th>" +
+        "<th class='text-right'>Whiff%</th>" +
+        "<th class='text-right'>K%</th>" +
+        "<th class='text-right'>BB%</th>" +
+        "<th class='text-right'>FB</th>" +
+        "<th class='text-right'>去年 xERA</th>" +
+        "<th class='text-right'>投手分</th>" +
+        "<th class='text-right'>對手分</th>" +
+        "<th class='text-right'>綜合</th>" +
+        "<th>建議</th>" +
+        "</tr></thead>";
+      var body = "<tbody>";
+      list.forEach(function(it) {
+        var p = it.p || {}; var pp = it.pp || {};
+        var oppRank = oppRankMap[it.opp_team_id];
+        var oppT = oppByTid[it.opp_team_id] || {};
+        var oppRankCls = oppRank ? (oppRank <= 10 ? "text-red-400" : oppRank >= nT - 9 ? "text-green-400" : "text-slate-300") : "text-slate-500";
+        var pitTierCls = it.pitTier >= 70 ? "text-green-400 font-bold" : it.pitTier <= 35 ? "text-red-400" : "text-slate-300";
+        var matchTierCls = it.matchupTier >= 65 ? "text-green-400 font-bold" : it.matchupTier <= 35 ? "text-red-400" : "text-slate-300";
+        var compCls = it.composite >= 70 ? "text-green-400 font-bold" : it.composite >= 55 ? "text-cyan-300 font-bold" : it.composite >= 40 ? "text-amber-300" : "text-red-400";
+        var verdict;
+        if (it.composite >= 75) verdict = "<span class='text-green-400 font-bold'>🟢 強烈推薦</span>";
+        else if (it.composite >= 60) verdict = "<span class='text-cyan-300 font-bold'>🔵 不錯選</span>";
+        else if (it.composite >= 45) verdict = "<span class='text-amber-300'>🟡 普通</span>";
+        else verdict = "<span class='text-red-400'>🔴 避開</span>";
+
+        var ownerName = ownedByTeam[norm(it.pitcher_name)];
+        var ownerCell = ownerName ? "<span class='text-[10px] px-1.5 py-0.5 rounded bg-red-500/15 text-red-300' title='" + ownerName + "'>已被佔</span>" : "<span class='text-[10px] px-1.5 py-0.5 rounded bg-green-500/15 text-green-400'>FA</span>";
+        body += "<tr>" +
+          "<td class='text-xs text-slate-400'>" + it.date.slice(5) + (it.is_home ? " 主" : " 客") + "</td>" +
+          "<td class='font-medium'>" + it.pitcher_name + " <span class='text-xs text-slate-500'>(" + (it.team_abbr||"") + ")</span></td>" +
+          "<td>" + ownerCell + "</td>" +
+          "<td class='text-slate-500 text-xs'>vs</td>" +
+          "<td><span class='font-mono'>" + (it.opp_abbr||"") + "</span> <span class='text-xs " + oppRankCls + "'>(打線 #" + (oppRank||"?") + ")</span></td>" +
+          "<td class='text-right font-mono'>" + (p.xera ? p.xera.toFixed(2) : "—") + "</td>" +
+          "<td class='text-right font-mono'>" + (p.whiff_pct ? p.whiff_pct.toFixed(1) + "%" : "—") + "</td>" +
+          "<td class='text-right font-mono'>" + (p.k_pct ? p.k_pct.toFixed(1) + "%" : "—") + "</td>" +
+          "<td class='text-right font-mono'>" + (p.bb_pct ? p.bb_pct.toFixed(1) + "%" : "—") + "</td>" +
+          "<td class='text-right font-mono'>" + (p.fb_velo ? p.fb_velo.toFixed(1) : "—") + "</td>" +
+          "<td class='text-right font-mono text-slate-400'>" + (pp.xera ? pp.xera.toFixed(2) : "—") + "</td>" +
+          "<td class='text-right font-mono " + pitTierCls + "'>" + it.pitTier + "</td>" +
+          "<td class='text-right font-mono " + matchTierCls + "'>" + it.matchupTier + "</td>" +
+          "<td class='text-right font-mono " + compCls + "'>" + it.composite + "</td>" +
+          "<td>" + verdict + "</td>" +
+          "</tr>";
+      });
+      body += "</tbody>";
+      streamTable.innerHTML = head + body;
+    }
+
+    // MLB team batting heatmap (uses MLB Stats API fields: ops, avg, hr, k, bb, runs)
+    function renderMLBHeatmap() {
+      var head = "<thead><tr>" +
+        "<th class='text-left'>#</th>" +
+        "<th class='text-left'>球隊</th>" +
+        "<th class='text-right'>OPS</th>" +
+        "<th class='text-right'>AVG</th>" +
+        "<th class='text-right'>HR</th>" +
+        "<th class='text-right'>R</th>" +
+        "<th class='text-right'>RBI</th>" +
+        "<th class='text-right'>SB</th>" +
+        "<th class='text-right'>K%</th>" +
+        "<th class='text-right'>BB%</th>" +
+        "<th>火力 →</th>" +
+        "</tr></thead>";
+      var body = "<tbody>";
+      tbSorted.forEach(function(t, i) {
+        var rank = i + 1;
+        var bg = rankToColor(rank, nT, true); // strong hitter = red
+        body += "<tr>" +
+          "<td class='font-mono font-bold'>#" + rank + "</td>" +
+          "<td class='font-medium'>" + (t.abbr||"") + " <span class='text-xs text-slate-500'>" + (t.name||"") + "</span></td>" +
+          "<td class='text-right font-mono font-bold'>" + (t.ops||0).toFixed(3) + "</td>" +
+          "<td class='text-right font-mono'>" + (t.avg||0).toFixed(3) + "</td>" +
+          "<td class='text-right font-mono'>" + (t.hr||0) + "</td>" +
+          "<td class='text-right font-mono'>" + (t.runs||0) + "</td>" +
+          "<td class='text-right font-mono'>" + (t.rbi||0) + "</td>" +
+          "<td class='text-right font-mono'>" + (t.sb||0) + "</td>" +
+          "<td class='text-right font-mono'>" + (t.k_pct||0).toFixed(1) + "%</td>" +
+          "<td class='text-right font-mono'>" + (t.bb_pct||0).toFixed(1) + "%</td>" +
+          "<td><div style='display:inline-block;width:" + Math.round((nT - rank + 1) / nT * 200) + "px;height:14px;background:" + bg + ";border-radius:3px'></div></td>" +
+          "</tr>";
+      });
+      body += "</tbody>";
+      heatTable.innerHTML = head + body;
+    }
+
+    var currentDay = "1";
+    document.querySelectorAll(".stream-date-btn").forEach(function(btn) {
+      btn.addEventListener("click", function() {
+        document.querySelectorAll(".stream-date-btn").forEach(function(b){ b.classList.remove("bg-slate-800","text-white"); b.classList.add("bg-slate-100","text-slate-700"); });
+        btn.classList.add("bg-slate-800","text-white"); btn.classList.remove("bg-slate-100","text-slate-700");
+        currentDay = btn.dataset.day;
+        renderStream(currentDay);
+      });
+    });
+    document.querySelectorAll(".stream-own-btn").forEach(function(btn) {
+      btn.addEventListener("click", function() {
+        document.querySelectorAll(".stream-own-btn").forEach(function(b){ b.classList.remove("bg-slate-800","text-white"); b.classList.add("bg-slate-100","text-slate-700"); });
+        btn.classList.add("bg-slate-800","text-white"); btn.classList.remove("bg-slate-100","text-slate-700");
+        currentOwn = btn.dataset.own;
+        renderStream(currentDay);
+      });
+    });
+    renderStream("1");
+    renderMLBHeatmap();
   })();
 
   // --- Waivers: split by position type, show both batter/pitcher rows with appropriate columns ---

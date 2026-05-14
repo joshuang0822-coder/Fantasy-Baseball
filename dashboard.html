@@ -853,6 +853,13 @@
       </div>
       <div id="tradeBody" class="p-4"></div>
     </div>
+    <div class="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden mb-4">
+      <div class="px-4 py-3 border-b border-slate-200">
+        <h3 class="font-semibold">🛠️ 自訂交易分析器</h3>
+        <p class="text-xs text-slate-500 mt-1">勾選你想送出的球員 + 對方要送來的球員 → 即時看公平度、類別影響、最終建議</p>
+      </div>
+      <div id="customTradeBody" class="p-4"></div>
+    </div>
   </div>
 
   <div id="tab-stream" class="tab-panel hidden">
@@ -2668,12 +2675,17 @@ var PITCHER_COLSPAN = 19;
       var hh = b.hard_hit_pct || 0;
       var bb = b.bb_pct || 0;
       var k = b.k_pct || 25;
+      var batSpeed = b.bat_speed || 70;
+      var sweet = b.sweet_spot_pct || 32;
       var sX = _clamp01(xwoba, 0.250, 0.450);
       var sB = _clamp01(barrel, 0, 25);
       var sH = _clamp01(hh, 25, 75);
       var sBB = _clamp01(bb, 0, 20);
       var sK = _clamp01(35 - k, 0, 20);
-      return sX*0.35 + sB*0.20 + sH*0.15 + sBB*0.15 + sK*0.15;
+      var sBat = _clamp01(batSpeed - 68, 0, 10);    // 68→78 mph
+      var sSweet = _clamp01(sweet - 28, 0, 12);     // 28→40%
+      // Weights: xwOBA(28%) + Brl(18%) + HH(12%) + BB(12%) + K-(12%) + BatSpd(10%) + Sweet(8%)
+      return sX*0.28 + sB*0.18 + sH*0.12 + sBB*0.12 + sK*0.12 + sBat*0.10 + sSweet*0.08;
     }
     function pitcherTrueTalent(p) {
       if (!p) return null;
@@ -2685,27 +2697,43 @@ var PITCHER_COLSPAN = 19;
       var bb = p.bb_pct || 9;
       var hh = p.hh_pct_against || 45;
       var fb = p.fb_velo || 91;
-      var sX = _clamp01(5.5 - xera, 0, 3.5);
-      var sK = _clamp01(k - 14, 0, 25);
-      var sW = _clamp01(whiff - 18, 0, 25);
-      var sBB = _clamp01(12 - bb, 0, 12);
-      var sH = _clamp01(50 - hh, 0, 25);
-      var sF = _clamp01(fb - 90, 0, 8.3);
+      // Tighter, more realistic scales — top SP can reach 85+, average ~50
+      var sX = _clamp01(5.5 - xera, 0, 3.5);         // xERA 2.0→5.5
+      var sK = _clamp01(k - 14, 0, 16);              // K% 14→30 (was 14→39)
+      var sW = _clamp01(whiff - 18, 0, 14);          // Whiff 18→32 (was 18→43)
+      var sBB = _clamp01(12 - bb, 0, 8);             // BB% 4→12 (tighter)
+      var sH = _clamp01(45 - hh, 0, 15);             // HH against 30→45 (was 25→50)
+      var sF = _clamp01(fb - 90, 0, 8);              // FB 90→98
       return sX*0.30 + sK*0.20 + sW*0.20 + sBB*0.10 + sH*0.10 + sF*0.10;
     }
-    // Blend current + previous year, regress small samples toward prev (or league avg 50)
-    // - When current sample is full (≥ minSample), weight 70% current / 30% prev
-    // - When current sample is tiny, weight prev more heavily
+    // Blend current + previous year with TREND DETECTION:
+    // - Default: weight grows with sample (40%→90% current as sample fills)
+    //   When PA/BF reaches minSample, current is already 90% weighted
+    // - Breakout/decline: when |cur - prev| ≥ 5 with meaningful sample,
+    //   shift even more weight to current (up to 95%) so breakouts get
+    //   their due credit and declines get penalized
+    // - Small samples without prev data → regress toward league avg 50
     function blendScore(cur, prev, sampleSize, minSample) {
       if (cur === null && prev === null) return 50;
       if (cur === null) return prev;
       var reliab = Math.min(1, sampleSize / minSample);  // 0..1
       if (prev === null) {
-        // Regress to league-average 50 if very small sample
         return cur * reliab + 50 * (1 - reliab);
       }
-      // Current carries 30% baseline + up to 40% more by sample (max 70%)
-      var curWt = 0.30 + 0.40 * reliab;
+      // Base: 20% baseline + up to 70% more by sample (so 20%–90% current)
+      // Tiny samples (e.g. 21 BF) only get ~30% weight — track record dominates
+      var curWt = 0.20 + 0.70 * reliab;
+      // Trend detection: divergence + reasonable sample = real breakout/decline
+      var diff = cur - prev;                            // positive = improving
+      var absDiff = Math.abs(diff);
+      if (absDiff >= 5 && reliab >= 0.4) {
+        // Boost current weight by up to +0.25 based on trend size
+        // diff 5 → +0, diff 8 → +0.05, diff 12 → +0.117, diff 20+ → +0.25
+        var trendBoost = Math.min(0.25, (absDiff - 5) / 15 * 0.25);
+        // Scale by reliability — need solid sample to trust the trend
+        trendBoost *= Math.min(1, (reliab - 0.4) / 0.4);
+        curWt = Math.min(0.95, curWt + trendBoost);
+      }
       return cur * curWt + prev * (1 - curWt);
     }
 
@@ -2729,7 +2757,102 @@ var PITCHER_COLSPAN = 19;
         score = blendScore(cur, prv, pa, 250);  // ~ 2 months full work
       }
       score = Math.round(score * 10) / 10;
-      return { isPitcher: isPitcher, score: score, b: b, p: p, prevB: prevB, prevP: prevP };
+      return { isPitcher: isPitcher, score: score, b: b, p: p, prevB: prevB, prevP: prevP, name: player ? player.name : null };
+    }
+
+    // ---- Category metrics (shared by render + custom trade builder) ----
+    var _batterCatIds = {"7":1,"12":1,"13":1,"16":1,"18":1,"3":1,"55":1};
+    var _pitcherCatIds = {"28":1,"42":1,"26":1,"27":1,"56":1,"83":1,"89":1};
+
+    // Sprint-speed lookup (only ~30 fastest are in the leaderboard)
+    var _sprintMap = {};
+    (D.sprint_speed || []).forEach(function(r){
+      var k = normName(r.name);
+      if (k) _sprintMap[k] = { sprint: r.sprint_speed || 0, bolts: r.bolts || 0 };
+    });
+
+    // Blend a single rate stat for CATEGORY PROJECTION (rest-of-season expected value).
+    // More conservative than score blend — small samples lean heavily on prev because
+    // 20 BF / 30 PA can be wildly misleading when projecting forward 100+ days.
+    // Uses reliab^1.3 so weight grows slowly until sample is meaningful.
+    function _blendRate(curVal, prevVal, sampleSize, minSample) {
+      if ((curVal == null || isNaN(curVal)) && (prevVal == null || isNaN(prevVal))) return 0;
+      if (curVal == null || isNaN(curVal)) return prevVal || 0;
+      if (prevVal == null || isNaN(prevVal)) return curVal;
+      var reliab = Math.min(1, sampleSize / minSample);
+      // 10-85% range, with non-linear ramp — heavy regression for small samples
+      var cw = 0.10 + 0.75 * Math.pow(reliab, 1.3);
+      return curVal * cw + prevVal * (1 - cw);
+    }
+
+    function _catMetric(sid, info) {
+      if (!info) return 0;
+      var b = info.b || {};
+      var prevB = info.prevB || {};
+      var pa = b.pa || 0;
+      var p = info.p || {};
+      var prevP = info.prevP || {};
+      var bf = p.bf || 0;
+
+      // Metric convention: deviation from league average baseline.
+      //  - Positive = player is BETTER than league avg in this category
+      //  - Negative = player is BELOW league avg in this category
+      //  - 0 = not applicable (e.g., batter for a pitcher category)
+      // Adding a player adds their metric to your "收進" total;
+      // removing them subtracts from "送出" total.
+
+      // ---------- Batter cats ----------
+      var hasBatter = !!info.b || !!info.prevB;
+      if (sid === "12") return hasBatter ? (_blendRate(b.barrel_pct, prevB.barrel_pct, pa, 250) - 8) : 0;       // HR — league avg Brl ~8%
+      if (sid === "13") return hasBatter ? (_blendRate(b.xwoba, prevB.xwoba, pa, 250)*100 - 32) : 0;            // RBI — league avg xwOBA ~.320
+      if (sid === "7")  return hasBatter ? (_blendRate(b.xwoba, prevB.xwoba, pa, 250)*100 - 32) : 0;            // R — same proxy
+      if (sid === "16") {                                                                                       // SB — sprint speed bolts
+        if (!hasBatter) return 0;
+        var key = info.name ? normName(info.name) : null;
+        if (key && _sprintMap[key]) return (_sprintMap[key].bolts || 0) - 5;  // baseline 5 bolts = average runner
+        return -5;  // not in top-30 → below avg runner
+      }
+      if (sid === "18") return hasBatter ? (_blendRate(b.bb_pct, prevB.bb_pct, pa, 250) - 8) : 0;               // BB% — avg 8%
+      if (sid === "3")  return hasBatter ? (_blendRate(b.xba, prevB.xba, pa, 250)*100 - 25) : 0;                // AVG — avg xBA ~.250
+      if (sid === "55") return hasBatter ? (_blendRate(b.xwoba, prevB.xwoba, pa, 250)*100 - 32) : 0;            // OPS — avg xwOBA ~.320
+
+      // ---------- Pitcher cats ----------
+      var hasPitcher = !!info.p || !!info.prevP;
+      if (sid === "28") {                                                                                       // W — prev-year wins as proxy, vs avg ~10/season
+        if (!hasPitcher) return 0;
+        var w = (prevP.wins != null) ? prevP.wins : 0;
+        return (w - 8) / 6;  // 8 W is league avg SP, scale down
+      }
+      if (sid === "42") {                                                                                       // K — K-rate vs avg 22%, projected
+        if (!hasPitcher) return 0;
+        return (_blendRate(p.k_pct, prevP.k_pct, bf, 150) - 22) * 3;
+      }
+      if (sid === "26") {                                                                                       // ERA — baseline xERA ~4.0
+        if (!hasPitcher) return 0;
+        var xera = _blendRate(p.xera, prevP.xera, bf, 150);
+        return xera > 0 ? (4.0 - xera) : 0;
+      }
+      if (sid === "27") {                                                                                       // WHIP — composite baseline ~35
+        if (!hasPitcher) return 0;
+        var curC = (p.bb_pct != null) ? ((p.bb_pct||0) + (p.woba_against||0)*100) : null;
+        var prvC = (prevP.bb_pct != null) ? ((prevP.bb_pct||0) + (prevP.woba_against||0)*100) : null;
+        var v = _blendRate(curC, prvC, bf, 150);
+        return v > 0 ? (35 - v) : 0;
+      }
+      if (sid === "56") {                                                                                       // K/BB — (K%-BB%) vs avg ~14
+        if (!hasPitcher) return 0;
+        var kk = _blendRate(p.k_pct, prevP.k_pct, bf, 150);
+        var bbb = _blendRate(p.bb_pct, prevP.bb_pct, bf, 150);
+        return (kk - bbb) - 14;
+      }
+      if (sid === "83") {                                                                                       // QS — prev qs vs avg 8/season
+        if (!hasPitcher) return 0;
+        var qs = (prevP.qs != null) ? prevP.qs : 0;
+        return (qs - 8) / 6;
+      }
+      if (sid === "89") return 0;  // SV+H punted
+
+      return 0;
     }
 
     function render(oppKey) {
@@ -2739,10 +2862,15 @@ var PITCHER_COLSPAN = 19;
       var oppCats = opp.category_stats || {};
       var numTeams = standings.length;
 
+      // Punt categories — user has dropped all RPs, so SV+H (89) is intentionally tanked.
+      // Never recommend trades that try to fix this category.
+      var puntedCats = { "89": 1 };  // SV+H
+
       // Classify cats
       var iWantCats = [];   // I'm weak (rank > 5), they're strong (rank ≤ 4)
       var iOfferCats = [];  // I'm strong (rank ≤ 4), they're weak (rank > 5)
       cats.forEach(function(c) {
+        if (puntedCats[c.stat_id]) return;  // skip punted categories
         var myRank = (myCats[c.stat_id]||{}).rank || numTeams;
         var oppRank = (oppCats[c.stat_id]||{}).rank || numTeams;
         if (myRank > 5 && oppRank <= 4) iWantCats.push({ cat: c, myRank: myRank, oppRank: oppRank, gap: myRank - oppRank });
@@ -2751,13 +2879,13 @@ var PITCHER_COLSPAN = 19;
       iWantCats.sort(function(a,b){ return b.gap - a.gap; });
       iOfferCats.sort(function(a,b){ return b.gap - a.gap; });
 
-      // Cat → required player type and stat
-      var batterCatIds = {"7":1,"12":1,"13":1,"16":1,"18":1,"3":1,"55":1};
-      var pitcherCatIds = {"28":1,"42":1,"26":1,"27":1,"56":1,"83":1,"89":1};
+      // Cat → required player type and stat (refs to outer-scope versions)
+      var batterCatIds = _batterCatIds;
+      var pitcherCatIds = _pitcherCatIds;
       function catNeedsPitcher(sid) { return !!pitcherCatIds[sid]; }
+      var catMetric = _catMetric;
 
-      // Cat → metric on player to gauge contribution
-      function catMetric(sid, info) {
+      function _unusedRender_catMetric(sid, info) {
         if (!info) return 0;
         if (sid === "12") return info.b ? (info.b.barrel_pct||0) : 0;     // HR
         if (sid === "13") return info.b ? (info.b.xwoba||0)*100 : 0;     // RBI
@@ -2825,8 +2953,15 @@ var PITCHER_COLSPAN = 19;
         return "<span class='text-[10px] font-mono ml-1'>" + parts.join(" ") + "</span>";
       }
 
+      // Helper: skip pure relievers (user is punting SV+H, doesn't want RPs)
+      function isPureRP(p) {
+        var pos = String(p.pos || "").toUpperCase();
+        return pos === "RP";
+      }
+
       // Their roster — find buy-low targets: high underlying score + positive delta (unlucky)
-      var theirRoster = (allRosters[oppKey] || []).map(function(p){
+      // Exclude pure RPs since user has dropped relief pitching entirely
+      var theirRoster = (allRosters[oppKey] || []).filter(function(p){ return !isPureRP(p); }).map(function(p){
         var info = getPlayerInfo(p);
         var catScores = {};
         iWantCats.forEach(function(w){ catScores[w.cat.stat_id] = catMetric(w.cat.stat_id, info); });
@@ -3003,6 +3138,226 @@ var PITCHER_COLSPAN = 19;
 
     sel.addEventListener("change", function(e){ render(e.target.value); });
     if (others.length > 0) render(others[0].team_key);
+
+    // ============================================================
+    // Custom trade builder — pick players manually, see analysis
+    // ============================================================
+    var customDiv = document.getElementById("customTradeBody");
+    if (customDiv) {
+      var selectedGive = new Set();
+      var selectedGet = new Set();
+      var currentOpp = others.length > 0 ? others[0].team_key : null;
+
+      var catNameMap = {};
+      cats.forEach(function(c){ catNameMap[c.stat_id] = c.name || c.stat_id; });
+
+      function escapeHTML(s) { return String(s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+      function renderCustom(oppKey) {
+        currentOpp = oppKey;
+        selectedGive.clear();
+        selectedGet.clear();
+
+        var myPlayers = (allRosters[myKey] || []).slice();
+        var oppPlayers = (allRosters[oppKey] || []).slice();
+        var opp = standings.find(function(t){ return t.team_key === oppKey; }) || {};
+
+        // Sort by score desc within each side
+        function withScore(arr) {
+          return arr.map(function(p){ return { player: p, info: getPlayerInfo(p) }; })
+                    .sort(function(a,b){ return (b.info.score||0) - (a.info.score||0); });
+        }
+        var myArr = withScore(myPlayers);
+        var oppArr = withScore(oppPlayers);
+
+        function rowHTML(side, idx, item) {
+          var p = item.player, info = item.info;
+          var typeBadge = info.isPitcher ? "投" : "打";
+          var scoreColor = side === "give" ? "text-amber-300" : "text-cyan-300";
+          var checkboxClass = side === "give" ? "custom-give" : "custom-get";
+          return "<label class='flex items-center gap-2 px-2 py-1 hover:bg-slate-800/40 rounded cursor-pointer text-sm'>" +
+            "<input type='checkbox' class='" + checkboxClass + "' data-idx='" + idx + "'>" +
+            "<span class='inline-block px-1 text-[10px] font-bold rounded bg-slate-700 text-slate-300'>" + typeBadge + "</span>" +
+            "<span class='flex-1 text-slate-200 truncate'>" + escapeHTML(p.name) + "</span>" +
+            "<span class='text-[10px] text-slate-500'>" + escapeHTML(p.pos||"") + "</span>" +
+            "<span class='font-mono text-xs " + scoreColor + " w-12 text-right'>" + (info.score||0).toFixed(1) + "</span>" +
+            "</label>";
+        }
+
+        var html = "<div class='grid grid-cols-1 md:grid-cols-2 gap-4'>";
+        // Give side
+        html += "<div class='border border-amber-500/30 rounded-lg p-3 bg-amber-500/5'>";
+        html += "<div class='flex items-center justify-between mb-2'>";
+        html += "<div class='text-sm font-semibold text-amber-300 uppercase tracking-wider'>📤 你送出</div>";
+        html += "<div class='text-[10px] text-slate-500'>" + escapeHTML(D.my_team || '') + "</div>";
+        html += "</div>";
+        html += "<div class='space-y-0.5 max-h-[420px] overflow-y-auto'>";
+        myArr.forEach(function(item, i){ html += rowHTML("give", i, item); });
+        html += "</div></div>";
+        // Get side
+        html += "<div class='border border-cyan-500/30 rounded-lg p-3 bg-cyan-500/5'>";
+        html += "<div class='flex items-center justify-between mb-2'>";
+        html += "<div class='text-sm font-semibold text-cyan-300 uppercase tracking-wider'>📥 收進</div>";
+        html += "<div class='text-[10px] text-slate-500'>" + escapeHTML(opp.team || '') + "</div>";
+        html += "</div>";
+        html += "<div class='space-y-0.5 max-h-[420px] overflow-y-auto'>";
+        oppArr.forEach(function(item, i){ html += rowHTML("get", i, item); });
+        html += "</div></div>";
+        html += "</div>";
+
+        html += "<div id='customTradeResult' class='mt-4'></div>";
+        customDiv.innerHTML = html;
+
+        // Wire up checkboxes
+        customDiv.querySelectorAll(".custom-give").forEach(function(cb){
+          cb.addEventListener("change", function(){
+            var i = +cb.dataset.idx;
+            if (cb.checked) selectedGive.add(i); else selectedGive.delete(i);
+            analyzeCustom(myArr, oppArr);
+          });
+        });
+        customDiv.querySelectorAll(".custom-get").forEach(function(cb){
+          cb.addEventListener("change", function(){
+            var i = +cb.dataset.idx;
+            if (cb.checked) selectedGet.add(i); else selectedGet.delete(i);
+            analyzeCustom(myArr, oppArr);
+          });
+        });
+        analyzeCustom(myArr, oppArr);
+      }
+
+      function analyzeCustom(myArr, oppArr) {
+        var result = document.getElementById("customTradeResult");
+        if (!result) return;
+        if (selectedGive.size === 0 && selectedGet.size === 0) {
+          result.innerHTML = "<div class='text-sm text-slate-500 italic text-center py-6 border border-dashed border-slate-700 rounded-lg'>👆 從上方兩邊各勾選想交易的球員，下方自動計算公平度、類別影響、最終建議</div>";
+          return;
+        }
+
+        var giveItems = Array.from(selectedGive).map(function(i){ return myArr[i]; }).filter(Boolean);
+        var getItems  = Array.from(selectedGet).map(function(i){ return oppArr[i]; }).filter(Boolean);
+
+        var giveScore = giveItems.reduce(function(s,x){ return s + (x.info.score||0); }, 0);
+        var getScore  = getItems.reduce(function(s,x){ return s + (x.info.score||0); }, 0);
+        var diff = getScore - giveScore;  // positive = you gain value
+        var fairness = Math.max(0, 100 - Math.abs(diff) * 4);
+
+        var fairCls = fairness >= 80 ? "text-green-400" : fairness >= 60 ? "text-amber-300" : "text-red-300";
+        var fairEmoji = fairness >= 80 ? "🟢" : fairness >= 60 ? "🟡" : "🔴";
+
+        // Per-category impact: normalize gain so column is comparable across categories
+        var puntedCats = { "89": 1 };
+        var catRows = [];
+        cats.forEach(function(c){
+          if (puntedCats[c.stat_id]) return;
+          var isPitchCat = !!_pitcherCatIds[c.stat_id];
+          var giveSum = 0, getSum = 0;
+          giveItems.forEach(function(x){ if (x.info.isPitcher === isPitchCat) giveSum += _catMetric(c.stat_id, x.info); });
+          getItems.forEach(function(x){ if (x.info.isPitcher === isPitchCat) getSum += _catMetric(c.stat_id, x.info); });
+          var raw = getSum - giveSum;
+          // Normalize per category to ~-10..+10 range based on new deviation-from-baseline metric
+          var scale = 1;
+          if (c.stat_id === "7")  scale = 0.5;      // R ← xwOBA*100 dev (~±20)
+          else if (c.stat_id === "12") scale = 0.7; // HR ← Brl% dev (~±15)
+          else if (c.stat_id === "13") scale = 0.5; // RBI ← xwOBA*100 dev
+          else if (c.stat_id === "16") scale = 0.4; // SB ← bolts dev
+          else if (c.stat_id === "18") scale = 1.0; // BB ← BB% dev
+          else if (c.stat_id === "3")  scale = 1.0; // AVG ← xBA*100 dev
+          else if (c.stat_id === "55") scale = 0.5; // OPS ← xwOBA*100 dev
+          else if (c.stat_id === "28") scale = 5.0; // W ← (wins-8)/6
+          else if (c.stat_id === "42") scale = 0.3; // K ← (K%-22)*3
+          else if (c.stat_id === "26") scale = 5.0; // ERA ← (4.0 - xERA)
+          else if (c.stat_id === "27") scale = 0.7; // WHIP ← (35 - composite)
+          else if (c.stat_id === "56") scale = 0.5; // K/BB ← (K-BB-14)
+          else if (c.stat_id === "83") scale = 5.0; // QS ← (qs-8)/6
+          var norm = raw * scale;
+          catRows.push({ id: c.stat_id, name: c.name || c.stat_id, raw: raw, norm: norm, isPitcher: isPitchCat });
+        });
+
+        // Verdict
+        var verdict, verdictCls;
+        var posCats = catRows.filter(function(r){ return r.norm > 1; }).length;
+        var negCats = catRows.filter(function(r){ return r.norm < -1; }).length;
+        if (fairness >= 80 && diff >= -2 && posCats >= negCats) {
+          verdict = "🟢 推薦 — 公平且整體類別有進步";
+          verdictCls = "text-green-400 bg-green-500/10 border-green-500/40";
+        } else if (fairness >= 60 && diff >= -8 && (posCats >= negCats || diff > 0)) {
+          verdict = "🟡 可考慮 — 帳面略虧但仍可能值得（看你想補的類別）";
+          verdictCls = "text-amber-300 bg-amber-500/10 border-amber-500/40";
+        } else if (fairness < 60) {
+          verdict = "🔴 不建議 — 公平度太低，差距大";
+          verdictCls = "text-red-300 bg-red-500/10 border-red-500/40";
+        } else {
+          verdict = "🟡 中性 — 利弊互相抵銷，看你是否願意做位置/類別取捨";
+          verdictCls = "text-amber-300 bg-amber-500/10 border-amber-500/40";
+        }
+
+        var html = "";
+        html += "<div class='border border-slate-700/60 rounded-lg p-4 bg-slate-900/40'>";
+        html += "<div class='flex items-center justify-between mb-3'>";
+        html += "<div class='text-base font-semibold text-slate-200'>📊 交易分析</div>";
+        html += "<div class='text-lg " + fairCls + " font-bold'>" + fairEmoji + " 公平度 " + Math.round(fairness) + "/100</div>";
+        html += "</div>";
+
+        // Summary cards
+        html += "<div class='grid grid-cols-3 gap-3 text-center mb-4'>";
+        html += "<div class='border border-amber-500/40 rounded p-2.5 bg-amber-500/5'><div class='text-[10px] uppercase text-amber-300'>送出總分</div><div class='text-2xl font-mono text-amber-300 mt-1'>" + giveScore.toFixed(1) + "</div><div class='text-xs text-slate-500'>" + giveItems.length + " 人</div></div>";
+        var diffCls = Math.abs(diff) <= 5 ? "text-green-400" : diff > 5 ? "text-cyan-400" : "text-red-400";
+        var diffLabel = diff > 5 ? "你賺到" : diff < -5 ? "你虧損" : "對等";
+        html += "<div class='border border-slate-700/60 rounded p-2.5 bg-slate-900/40'><div class='text-[10px] uppercase text-slate-400'>差距</div><div class='text-2xl font-mono " + diffCls + " mt-1'>" + (diff > 0 ? "+" : "") + diff.toFixed(1) + "</div><div class='text-xs text-slate-500'>" + diffLabel + "</div></div>";
+        html += "<div class='border border-cyan-500/40 rounded p-2.5 bg-cyan-500/5'><div class='text-[10px] uppercase text-cyan-300'>收進總分</div><div class='text-2xl font-mono text-cyan-300 mt-1'>" + getScore.toFixed(1) + "</div><div class='text-xs text-slate-500'>" + getItems.length + " 人</div></div>";
+        html += "</div>";
+
+        // Per-player breakdown
+        html += "<div class='grid grid-cols-1 md:grid-cols-2 gap-3 mb-4'>";
+        html += "<div><div class='text-xs font-semibold text-amber-300 mb-1'>送出</div>";
+        giveItems.forEach(function(x){
+          var typeBadge = x.info.isPitcher ? "投" : "打";
+          html += "<div class='text-xs text-slate-300 flex justify-between border-b border-slate-700/40 py-1'><span><span class='inline-block px-1 text-[9px] font-bold rounded bg-slate-700 text-slate-300 mr-1'>" + typeBadge + "</span>" + escapeHTML(x.player.name) + " <span class='text-slate-500'>(" + escapeHTML(x.player.pos||"") + ")</span></span><span class='font-mono text-amber-300'>" + x.info.score.toFixed(1) + "</span></div>";
+        });
+        html += "</div>";
+        html += "<div><div class='text-xs font-semibold text-cyan-300 mb-1'>收進</div>";
+        getItems.forEach(function(x){
+          var typeBadge = x.info.isPitcher ? "投" : "打";
+          html += "<div class='text-xs text-slate-300 flex justify-between border-b border-slate-700/40 py-1'><span><span class='inline-block px-1 text-[9px] font-bold rounded bg-slate-700 text-slate-300 mr-1'>" + typeBadge + "</span>" + escapeHTML(x.player.name) + " <span class='text-slate-500'>(" + escapeHTML(x.player.pos||"") + ")</span></span><span class='font-mono text-cyan-300'>" + x.info.score.toFixed(1) + "</span></div>";
+        });
+        html += "</div>";
+        html += "</div>";
+
+        // Category impact
+        html += "<div class='text-sm font-semibold text-slate-200 mb-2'>📈 各類別影響（SV+H 已排除）</div>";
+        html += "<div class='grid grid-cols-2 md:grid-cols-4 gap-2'>";
+        catRows.forEach(function(ci){
+          var cls = "text-slate-400";
+          var bar = "bg-slate-700";
+          var sign = "";
+          if (ci.norm > 1) { cls = "text-green-400"; bar = "bg-green-500/40"; sign = "+"; }
+          else if (ci.norm < -1) { cls = "text-red-400"; bar = "bg-red-500/40"; sign = ""; }
+          var pctW = Math.min(100, Math.abs(ci.norm) * 5);
+          var typeIcon = ci.isPitcher ? "⚾" : "🏏";
+          html += "<div class='border border-slate-700/50 rounded p-2 bg-slate-900/30'>";
+          html += "<div class='flex justify-between items-center text-xs mb-1'>";
+          html += "<span class='text-slate-300'>" + typeIcon + " " + ci.name + "</span>";
+          html += "<span class='font-mono " + cls + "'>" + sign + ci.norm.toFixed(1) + "</span>";
+          html += "</div>";
+          html += "<div class='h-1 bg-slate-800 rounded overflow-hidden relative'>";
+          html += "<div class='h-full " + bar + "' style='width:" + pctW + "%'></div>";
+          html += "</div>";
+          html += "</div>";
+        });
+        html += "</div>";
+
+        // Verdict
+        html += "<div class='mt-4 border rounded-lg p-3 text-sm font-semibold " + verdictCls + "'>" + verdict + "</div>";
+        html += "<div class='text-[10px] text-slate-500 mt-2'>📐 評估邏輯：公平度 = 100 - |差距|×4；類別影響使用真實技能權重（rate stats）— 並非賽季預測，而是相對強度信號</div>";
+        html += "</div>";
+
+        result.innerHTML = html;
+      }
+
+      sel.addEventListener("change", function(e){ renderCustom(e.target.value); });
+      if (others.length > 0) renderCustom(others[0].team_key);
+    }
   })();
 
   // --- Pitcher year-over-year skill comparison (real improvement vs luck) ---

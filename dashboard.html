@@ -458,6 +458,73 @@
   /* Sticky table headers when scrolling */
   thead th { position: sticky; top: 0; z-index: 10; }
 
+  /* ====== Savant-style percentile bars ====== */
+  .pct-section { margin-bottom: 24px; }
+  .pct-section-title {
+    font-size: 14px; font-weight: 700; color: var(--text-hi);
+    border-bottom: 1px dashed rgba(148,163,184,0.3);
+    padding-bottom: 6px; margin-bottom: 12px;
+  }
+  .pct-row {
+    display: grid;
+    grid-template-columns: 110px 1fr 70px;
+    align-items: center; gap: 12px;
+    padding: 5px 0;
+    border-bottom: 1px solid rgba(148,163,184,0.05);
+  }
+  .pct-label { font-size: 12px; font-weight: 600; color: var(--text); text-align: right; }
+  .pct-bar-container {
+    position: relative; height: 22px;
+    background: linear-gradient(90deg, #1e40af 0%, #94a3b8 50%, #dc2626 100%);
+    border-radius: 11px; overflow: visible;
+  }
+  .pct-bar-container::before {
+    content: ""; position: absolute; left: 0; top: 50%;
+    width: 100%; height: 2px;
+    background: rgba(255,255,255,0.06);
+    transform: translateY(-50%);
+  }
+  .pct-marker {
+    position: absolute; top: 50%; transform: translate(-50%, -50%);
+    width: 32px; height: 32px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 11px;
+    border: 2px solid #0a0f1f;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+    color: white;
+    z-index: 2;
+  }
+  .pct-marker.tier-top { background: #dc2626; }
+  .pct-marker.tier-high { background: #ea580c; }
+  .pct-marker.tier-mid { background: #94a3b8; color: #1c1917; }
+  .pct-marker.tier-low { background: #1d4ed8; }
+  .pct-marker.tier-bottom { background: #1e3a8a; }
+  .pct-value { font-family: "JetBrains Mono", monospace; font-size: 12px; color: var(--text); text-align: right; }
+  .pct-legend-line {
+    display: flex; justify-content: space-between;
+    margin-top: -10px; margin-bottom: 12px;
+    font-size: 10px; color: var(--text-low); padding: 0 4px;
+  }
+  .savant-header {
+    display: flex; align-items: center; gap: 16px; margin-bottom: 16px;
+    padding: 16px; background: linear-gradient(135deg, rgba(34,211,238,0.08), rgba(59,130,246,0.04));
+    border: 1px solid rgba(34,211,238,0.25); border-radius: 12px;
+  }
+  .savant-header-photo {
+    width: 90px; height: 90px; border-radius: 50%;
+    border: 3px solid var(--neon-cyan);
+    box-shadow: 0 0 20px rgba(34,211,238,0.4);
+    object-fit: cover; background: var(--bg-3);
+  }
+  .savant-header-name { font-size: 24px; font-weight: 800; color: var(--text-hi); line-height: 1.2; }
+  .savant-header-meta { font-size: 13px; color: var(--text-mid); margin-top: 4px; }
+  .savant-header-team {
+    display: inline-block; padding: 2px 8px;
+    background: rgba(34,211,238,0.15); color: var(--neon-cyan);
+    border-radius: 4px; font-size: 11px; font-weight: 700;
+    letter-spacing: 0.05em; margin-right: 6px;
+  }
+
   /* ========= Matchup card redesign ========= */
   .matchup-card {
     background: linear-gradient(135deg, rgba(15,23,42,0.6) 0%, rgba(20,30,50,0.4) 100%);
@@ -539,6 +606,7 @@
     <button class="tab-btn px-4 py-2 text-sm font-medium rounded-t-md text-slate-600 hover:bg-slate-100" data-tab="trade">🤝 交易建議</button>
     <button class="tab-btn px-4 py-2 text-sm font-medium rounded-t-md text-slate-600 hover:bg-slate-100" data-tab="weekstats">📋 本週數據排名</button>
     <button class="tab-btn px-4 py-2 text-sm font-medium rounded-t-md text-slate-600 hover:bg-slate-100" data-tab="stream">🎯 明日 Stream</button>
+    <button class="tab-btn px-4 py-2 text-sm font-medium rounded-t-md text-slate-600 hover:bg-slate-100" data-tab="savant">🎯 球員百分位</button>
   </div>
 
   <div id="noData" class="hidden bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-900 mb-3">尚無 Yahoo 資料 — Statcast 分頁仍可使用。</div>
@@ -653,6 +721,31 @@
         <p class="text-xs text-slate-500 mt-1">每個球員在 14 項的 Statcast 百分位。綠 = 強、紅 = 弱、灰 = 項目不適用或無資料</p>
       </div>
       <div class="overflow-x-auto p-4"><table id="contribHeatmap"></table></div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+      <div class="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+        <div class="px-4 py-3 border-b border-slate-200 flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <h3 class="font-semibold">🏏 打者綜合排名</h3>
+            <p class="text-xs text-slate-500 mt-1">xwOBA(35%)+ Barrel(20%)+ HH(15%)+ BB(15%)+ K反向(15%)</p>
+          </div>
+          <select id="batterRankSelect" class="rank-mode-select px-2 py-1 rounded border border-slate-600 text-xs bg-slate-800 text-white" style="color-scheme: dark; min-width: 180px;"></select>
+        </div>
+        <div class="overflow-x-auto"><table id="batterRanking"></table></div>
+        <div id="batterFABetter"></div>
+      </div>
+      <div class="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+        <div class="px-4 py-3 border-b border-slate-200 flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <h3 class="font-semibold">⚾ 投手綜合排名（僅 SP）</h3>
+            <p class="text-xs text-slate-500 mt-1">xERA(30%)+ K(20%)+ Whiff(20%)+ BB反向(10%)+ HH反向(10%)+ FB(10%)</p>
+          </div>
+          <select id="pitcherRankSelect" class="rank-mode-select px-2 py-1 rounded border border-slate-600 text-xs bg-slate-800 text-white" style="color-scheme: dark; min-width: 180px;"></select>
+        </div>
+        <div class="overflow-x-auto"><table id="pitcherRanking"></table></div>
+        <div id="pitcherFABetter"></div>
+      </div>
     </div>
   </div>
 
@@ -793,6 +886,19 @@
     </div>
   </div>
 
+  <div id="tab-savant" class="tab-panel hidden">
+    <div class="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+      <div class="px-4 py-3 border-b border-slate-200 flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h3 class="font-semibold">🎯 球員百分位排行(Savant 風格)</h3>
+          <p class="text-xs text-slate-500 mt-1">紅色=聯盟前段、藍色=後段、灰色=中段 ‧ 數字 = 百分位排名(越高越好)</p>
+        </div>
+        <select id="savantPlayerSelect" class="text-sm border border-slate-300 rounded px-2 py-1 min-w-[220px]"></select>
+      </div>
+      <div id="savantBody" class="p-4"></div>
+    </div>
+  </div>
+
   <div id="tab-weekstats" class="tab-panel hidden">
     <div class="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
       <div class="px-4 py-3 border-b border-slate-200 flex items-center justify-between flex-wrap gap-3">
@@ -822,6 +928,8 @@
 function normName(s) {
   if (!s) return "";
   var n = String(s);
+  // Strip parenthesized suffix (e.g. "Shohei Ohtani (Batter)" \u2192 "Shohei Ohtani")
+  n = n.replace(/\s*\([^)]*\)\s*/g, " ").trim();
   if (n.indexOf(",") >= 0) { var parts = n.split(",").map(function(x){return x.trim();}); n = parts[1] + " " + parts[0]; }
   n = n.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   return n.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -1541,6 +1649,347 @@ var PITCHER_COLSPAN = 19;
     "</tr>") : "";
   document.getElementById("rosterPitcherTable").innerHTML = pitcherRosterHead + "<tbody>" + pitcherAvgRow + (pitcherRows || "<tr><td colspan='15' class='text-center py-6 text-slate-500'>無投手</td></tr>") + "</tbody>";
 
+  // --- Composite ranking tables for batters / pitchers (toggleable: 我的 / 全聯盟 / 含FA) ---
+  (function buildRosterRanking() {
+    var bTable = document.getElementById("batterRanking");
+    var pTable = document.getElementById("pitcherRanking");
+    if (!bTable || !pTable) return;
+
+    // Build owner map: player normName → team name
+    var ownerMap = {};
+    Object.keys(D.all_rosters || {}).forEach(function(tk) {
+      var teamName = (D.standings.find(function(t){ return t.team_key === tk; }) || {}).team || tk;
+      (D.all_rosters[tk] || []).forEach(function(p) {
+        var k = normName(p.name);
+        if (k) ownerMap[k] = (ownerMap[k] ? ownerMap[k] + " / " : "") + teamName;
+      });
+    });
+
+    function clamp01(v, lo, hi) { return Math.max(0, Math.min(100, (v - lo) / (hi - lo) * 100)); }
+
+    function batterScore(b) {
+      var xwoba = b.xwoba || 0;
+      var barrel = b.barrel_pct || 0;
+      var hh = b.hard_hit_pct || 0;
+      var bb = b.bb_pct || 0;
+      var k = b.k_pct || 25;
+      var sX = clamp01(xwoba, 0.250, 0.450);
+      var sB = clamp01(barrel, 0, 25);
+      var sH = clamp01(hh, 25, 75);
+      var sBB = clamp01(bb, 0, 20);
+      var sK = clamp01(35 - k, 0, 20);
+      return Math.round(sX*0.35 + sB*0.20 + sH*0.15 + sBB*0.15 + sK*0.15);
+    }
+    function pitcherScore(p) {
+      var xera = p.xera || 5;
+      var k = p.k_pct || 18;
+      var whiff = p.whiff_pct || 22;
+      var bb = p.bb_pct || 9;
+      var hh = p.hh_pct_against || 45;
+      var fb = p.fb_velo || 91;
+      var sX = clamp01(5.5 - xera, 0, 3.5);
+      var sK = clamp01(k - 14, 0, 25);
+      var sW = clamp01(whiff - 18, 0, 25);
+      var sBB = clamp01(12 - bb, 0, 12);
+      var sH = clamp01(50 - hh, 0, 25);
+      var sF = clamp01(fb - 90, 0, 8.3);
+      return Math.round(sX*0.30 + sK*0.20 + sW*0.20 + sBB*0.10 + sH*0.10 + sF*0.10);
+    }
+    function tierBadge(score) {
+      if (score >= 70) return { label:"S+", cls:"bg-green-500/20 text-green-300" };
+      if (score >= 55) return { label:"S",  cls:"bg-cyan-500/20 text-cyan-300" };
+      if (score >= 45) return { label:"A",  cls:"bg-blue-500/20 text-blue-300" };
+      if (score >= 35) return { label:"B",  cls:"bg-slate-500/20 text-slate-300" };
+      if (score >= 20) return { label:"C",  cls:"bg-orange-500/20 text-orange-300" };
+      return { label:"D",  cls:"bg-red-500/20 text-red-300" };
+    }
+    function scoreBg(s) {
+      if (s >= 70) return "linear-gradient(90deg, rgba(74,222,128,0.25), rgba(74,222,128,0.05))";
+      if (s >= 55) return "linear-gradient(90deg, rgba(34,211,238,0.25), rgba(34,211,238,0.05))";
+      if (s >= 45) return "linear-gradient(90deg, rgba(59,130,246,0.20), rgba(59,130,246,0.05))";
+      if (s >= 35) return "linear-gradient(90deg, rgba(148,163,184,0.20), rgba(148,163,184,0.05))";
+      if (s >= 20) return "linear-gradient(90deg, rgba(251,146,60,0.20), rgba(251,146,60,0.05))";
+      return "linear-gradient(90deg, rgba(248,113,113,0.20), rgba(248,113,113,0.05))";
+    }
+
+    // Team list (sorted by current standings rank when available)
+    var teamList = (D.standings || []).slice().sort(function(a,b){
+      return (a.rank||99) - (b.rank||99);
+    }).map(function(t){ return { team_key: t.team_key, team: t.team }; });
+    // Fallback: if standings missing some teams in all_rosters, add them
+    Object.keys(D.all_rosters || {}).forEach(function(tk){
+      if (!teamList.find(function(t){ return t.team_key === tk; })) {
+        teamList.push({ team_key: tk, team: tk });
+      }
+    });
+    var myTeamKey = (function(){
+      var mt = (D.standings || []).find(function(t){ return t.team === D.my_team; });
+      return mt ? mt.team_key : null;
+    })();
+
+    // Build pools — mode is "me", "fa", or a team_key
+    function getBatterPool(mode) {
+      var arr = [];
+      if (mode === "me") {
+        batters.forEach(function(p) { arr.push({ name: p.name, pos: p.pos, owner: D.my_team }); });
+      } else if (mode === "fa") {
+        // FA pool only — anyone in allBatters not on any roster
+        var rostered = {};
+        Object.keys(D.all_rosters || {}).forEach(function(tk){
+          (D.all_rosters[tk] || []).forEach(function(p){ rostered[normName(p.name)] = true; });
+        });
+        for (var k in allBatters) {
+          if (rostered[k]) continue;
+          var b = allBatters[k];
+          if (!b || (b.pa||0) < 50) continue;
+          arr.push({ name: b.name, pos: "—", owner: "FA" });
+        }
+      } else {
+        // Specific team_key
+        var teamName = (teamList.find(function(t){ return t.team_key === mode; }) || {}).team || mode;
+        (D.all_rosters[mode] || []).forEach(function(p) {
+          var isP = isPitcherPlayer(p, allPitchers, allBatters);
+          if (!isP) arr.push({ name: p.name, pos: p.pos, owner: teamName });
+        });
+      }
+      return arr;
+    }
+    // SP-only filters — exclude pure relievers
+    function isSPByPos(pos) {
+      var s = String(pos || "").toUpperCase();
+      if (!s) return true;            // unknown → include (treat as SP)
+      if (s === "RP") return false;    // pure RP → drop
+      if (s.indexOf("SP") >= 0) return true;
+      if (s === "P") return true;      // generic P → include
+      return false;
+    }
+    // Build probable-starters set from MLB Stats API data (next ~2 days)
+    var probSet = {};
+    (D.probables || []).forEach(function(pr){
+      var k = normName(pr.pitcher_name);
+      if (k) probSet[k] = true;
+    });
+    function isSPByStats(p) {
+      // Heuristic for FA pool (no roster pos info available)
+      if (!p) return false;
+      var qs = p.qs || 0, sv = p.sv || 0, hold = p.hold || 0;
+      // Probable starter in next 2 days → definite SP
+      var k = normName(p.name);
+      if (probSet[k]) return true;
+      // No QS but has any save/hold → relief role, exclude
+      if (qs === 0 && (sv + hold) > 0) return false;
+      // QS dominates over relief usage → SP (allow occasional spot relief)
+      if (qs >= 1 && qs >= (sv + hold)) return true;
+      // Otherwise (no QS, no S/H, not in probables) → likely AAA / mop-up / unknown — exclude
+      return false;
+    }
+
+    function getPitcherPool(mode) {
+      var arr = [];
+      if (mode === "me") {
+        pitchers.forEach(function(p) {
+          if (!isSPByPos(p.pos)) return;
+          arr.push({ name: p.name, pos: p.pos, owner: D.my_team });
+        });
+      } else if (mode === "fa") {
+        var rostered = {};
+        Object.keys(D.all_rosters || {}).forEach(function(tk){
+          (D.all_rosters[tk] || []).forEach(function(p){ rostered[normName(p.name)] = true; });
+        });
+        for (var k in allPitchers) {
+          if (rostered[k]) continue;
+          var p = allPitchers[k];
+          if (!p || (p.bf||0) < 30) continue;
+          if (!isSPByStats(p)) continue;
+          arr.push({ name: p.name, pos: "SP", owner: "FA" });
+        }
+      } else {
+        var teamName = (teamList.find(function(t){ return t.team_key === mode; }) || {}).team || mode;
+        (D.all_rosters[mode] || []).forEach(function(p) {
+          var isP = isPitcherPlayer(p, allPitchers, allBatters);
+          if (!isP) return;
+          if (!isSPByPos(p.pos)) return;
+          arr.push({ name: p.name, pos: p.pos, owner: teamName });
+        });
+      }
+      return arr;
+    }
+
+    function rankBatters(pool) {
+      var ranked = pool.map(function(p) {
+        var b = allBatters[normName(p.name)];
+        return { player: p, b: b, hasData: !!b && (b.pa||0) >= 30, score: b && (b.pa||0) >= 30 ? batterScore(b) : null };
+      });
+      ranked.sort(function(a, b) {
+        if (a.score === null) return 1;
+        if (b.score === null) return -1;
+        return b.score - a.score;
+      });
+      return ranked;
+    }
+    function rankPitchers(pool) {
+      var ranked = pool.map(function(p) {
+        var pi = allPitchers[normName(p.name)];
+        return { player: p, p: pi, hasData: !!pi && (pi.bf||0) >= 30, score: pi && (pi.bf||0) >= 30 ? pitcherScore(pi) : null };
+      });
+      ranked.sort(function(a, b) {
+        if (a.score === null) return 1;
+        if (b.score === null) return -1;
+        return b.score - a.score;
+      });
+      return ranked;
+    }
+
+    function batterRowsHTML(ranked, showOwner) {
+      var html = "";
+      ranked.forEach(function(r, i) {
+        var isMine = r.player.owner === D.my_team;
+        var rowAttr = isMine ? " class='my-team-row'" : "";
+        if (!r.hasData) {
+          html += "<tr" + rowAttr + "><td class='text-center text-slate-500'>" + (i+1) + "</td><td class='font-medium'>" + r.player.name + "</td>" +
+            (showOwner ? "<td class='text-xs text-slate-400'>" + (r.player.owner||"") + "</td>" : "") +
+            "<td class='text-xs text-slate-500'>" + r.player.pos + "</td><td colspan='7' class='text-center text-slate-500'>(資料不足)</td></tr>";
+          return;
+        }
+        var tier = tierBadge(r.score);
+        var ownerCell = showOwner ? "<td class='text-xs " + (isMine ? "text-cyan-300 font-semibold" : "text-slate-400") + "'>" + (r.player.owner||"") + "</td>" : "";
+        html += "<tr" + rowAttr + " style='background:" + (isMine ? "linear-gradient(90deg, rgba(34,211,238,0.18), transparent 70%)" : scoreBg(r.score)) + "'>" +
+          "<td class='text-center font-mono font-bold'>" + (i+1) + "</td>" +
+          "<td class='font-medium'>" + r.player.name + "</td>" +
+          ownerCell +
+          "<td class='text-xs text-slate-500'>" + r.player.pos + "</td>" +
+          "<td class='text-right font-mono font-bold text-lg'>" + r.score + "</td>" +
+          "<td class='text-center'><span class='text-[10px] font-bold px-2 py-0.5 rounded " + tier.cls + "'>" + tier.label + "</span></td>" +
+          "<td class='text-right font-mono'>" + r.b.xwoba.toFixed(3) + "</td>" +
+          "<td class='text-right font-mono'>" + r.b.barrel_pct.toFixed(1) + "</td>" +
+          "<td class='text-right font-mono'>" + r.b.hard_hit_pct.toFixed(1) + "</td>" +
+          "<td class='text-right font-mono'>" + r.b.bb_pct.toFixed(1) + "</td>" +
+          "<td class='text-right font-mono'>" + r.b.k_pct.toFixed(1) + "</td>" +
+          "</tr>";
+      });
+      return html;
+    }
+    function pitcherRowsHTML(ranked, showOwner) {
+      var html = "";
+      ranked.forEach(function(r, i) {
+        var isMine = r.player.owner === D.my_team;
+        var rowAttr = isMine ? " class='my-team-row'" : "";
+        if (!r.hasData) {
+          html += "<tr" + rowAttr + "><td class='text-center text-slate-500'>" + (i+1) + "</td><td class='font-medium'>" + r.player.name + "</td>" +
+            (showOwner ? "<td class='text-xs text-slate-400'>" + (r.player.owner||"") + "</td>" : "") +
+            "<td class='text-xs text-slate-500'>" + r.player.pos + "</td><td colspan='7' class='text-center text-slate-500'>(資料不足 / IL)</td></tr>";
+          return;
+        }
+        var tier = tierBadge(r.score);
+        var ownerCell = showOwner ? "<td class='text-xs " + (isMine ? "text-cyan-300 font-semibold" : "text-slate-400") + "'>" + (r.player.owner||"") + "</td>" : "";
+        html += "<tr" + rowAttr + " style='background:" + (isMine ? "linear-gradient(90deg, rgba(34,211,238,0.18), transparent 70%)" : scoreBg(r.score)) + "'>" +
+          "<td class='text-center font-mono font-bold'>" + (i+1) + "</td>" +
+          "<td class='font-medium'>" + r.player.name + "</td>" +
+          ownerCell +
+          "<td class='text-xs text-slate-500'>" + r.player.pos + "</td>" +
+          "<td class='text-right font-mono font-bold text-lg'>" + r.score + "</td>" +
+          "<td class='text-center'><span class='text-[10px] font-bold px-2 py-0.5 rounded " + tier.cls + "'>" + tier.label + "</span></td>" +
+          "<td class='text-right font-mono'>" + r.p.xera.toFixed(2) + "</td>" +
+          "<td class='text-right font-mono'>" + r.p.k_pct.toFixed(1) + "</td>" +
+          "<td class='text-right font-mono'>" + r.p.whiff_pct.toFixed(1) + "</td>" +
+          "<td class='text-right font-mono'>" + r.p.bb_pct.toFixed(1) + "</td>" +
+          "<td class='text-right font-mono'>" + (r.p.fb_velo||0).toFixed(1) + "</td>" +
+          "</tr>";
+      });
+      return html;
+    }
+
+    function renderBatters(mode) {
+      var ranked = rankBatters(getBatterPool(mode));
+      var showOwner = mode !== "me";
+      var bHead = "<thead><tr><th class='text-center'>#</th><th class='text-left'>球員</th>" +
+        (showOwner ? "<th class='text-left'>歸屬</th>" : "") +
+        "<th>位</th><th class='text-right'>Score</th><th class='text-center'>Tier</th><th class='text-right'>xwOBA</th><th class='text-right'>Brl</th><th class='text-right'>HH</th><th class='text-right'>BB%</th><th class='text-right'>K%</th></tr></thead><tbody>";
+      bTable.innerHTML = bHead + batterRowsHTML(ranked, showOwner) + "</tbody>";
+
+      // FA-better-than-mine: only when viewing my own roster
+      var faDiv = document.getElementById("batterFABetter");
+      if (!faDiv) return;
+      if (mode !== "me") { faDiv.innerHTML = ""; return; }
+      var myRanked = ranked.filter(function(r){ return r.score !== null; });
+      if (myRanked.length === 0) { faDiv.innerHTML = ""; return; }
+      var minMyScore = myRanked[myRanked.length - 1].score;
+      var faRanked = rankBatters(getBatterPool("fa"))
+        .filter(function(r){ return r.hasData && r.score > minMyScore; })
+        .slice(0, 15);
+      if (faRanked.length === 0) {
+        faDiv.innerHTML = "<div class='px-4 py-3 text-xs text-slate-500 border-t border-slate-200'>✅ FA 池目前沒有打者比你陣容裡最弱的（Score " + minMyScore + "）更強</div>";
+        return;
+      }
+      faDiv.innerHTML =
+        "<div class='px-4 py-2 border-t border-slate-200 bg-amber-50/30'>" +
+          "<div class='text-xs font-semibold text-amber-700'>🚨 FA 比你最弱打者（Score " + minMyScore + "）更強的有 " + faRanked.length + " 人</div>" +
+        "</div>" +
+        "<div class='overflow-x-auto'><table class='w-full'>" +
+          "<thead><tr><th class='text-center'>#</th><th class='text-left'>球員</th><th>位</th><th class='text-right'>Score</th><th class='text-center'>Tier</th><th class='text-right'>xwOBA</th><th class='text-right'>Brl</th><th class='text-right'>HH</th><th class='text-right'>BB%</th><th class='text-right'>K%</th></tr></thead>" +
+          "<tbody>" + batterRowsHTML(faRanked, false) + "</tbody>" +
+        "</table></div>";
+    }
+
+    function renderPitchers(mode) {
+      var ranked = rankPitchers(getPitcherPool(mode));
+      var showOwner = mode !== "me";
+      var pHead = "<thead><tr><th class='text-center'>#</th><th class='text-left'>投手</th>" +
+        (showOwner ? "<th class='text-left'>歸屬</th>" : "") +
+        "<th>位</th><th class='text-right'>Score</th><th class='text-center'>Tier</th><th class='text-right'>xERA</th><th class='text-right'>K%</th><th class='text-right'>Whf%</th><th class='text-right'>BB%</th><th class='text-right'>FB</th></tr></thead><tbody>";
+      pTable.innerHTML = pHead + pitcherRowsHTML(ranked, showOwner) + "</tbody>";
+
+      var faDiv = document.getElementById("pitcherFABetter");
+      if (!faDiv) return;
+      if (mode !== "me") { faDiv.innerHTML = ""; return; }
+      var myRanked = ranked.filter(function(r){ return r.score !== null; });
+      if (myRanked.length === 0) { faDiv.innerHTML = ""; return; }
+      var minMyScore = myRanked[myRanked.length - 1].score;
+      var faRanked = rankPitchers(getPitcherPool("fa"))
+        .filter(function(r){ return r.hasData && r.score > minMyScore; })
+        .slice(0, 15);
+      if (faRanked.length === 0) {
+        faDiv.innerHTML = "<div class='px-4 py-3 text-xs text-slate-500 border-t border-slate-200'>✅ FA 池目前沒有投手比你陣容裡最弱的（Score " + minMyScore + "）更強</div>";
+        return;
+      }
+      faDiv.innerHTML =
+        "<div class='px-4 py-2 border-t border-slate-200 bg-amber-50/30'>" +
+          "<div class='text-xs font-semibold text-amber-700'>🚨 FA 比你最弱投手（Score " + minMyScore + "）更強的有 " + faRanked.length + " 人</div>" +
+        "</div>" +
+        "<div class='overflow-x-auto'><table class='w-full'>" +
+          "<thead><tr><th class='text-center'>#</th><th class='text-left'>投手</th><th>位</th><th class='text-right'>Score</th><th class='text-center'>Tier</th><th class='text-right'>xERA</th><th class='text-right'>K%</th><th class='text-right'>Whf%</th><th class='text-right'>BB%</th><th class='text-right'>FB</th></tr></thead>" +
+          "<tbody>" + pitcherRowsHTML(faRanked, false) + "</tbody>" +
+        "</table></div>";
+    }
+
+    // Populate dropdowns
+    function buildOptions() {
+      var st = " style='background:#1e293b;color:#fff'";
+      var opts = "<option value='me'" + st + ">⭐ 我的陣容（" + (D.my_team || "") + "）</option>";
+      opts += "<option disabled" + st + ">────── 各隊陣容 ──────</option>";
+      teamList.forEach(function(t){
+        if (t.team_key === myTeamKey) return; // skip self (already shown above)
+        opts += "<option value='" + t.team_key + "'" + st + ">" + t.team + "</option>";
+      });
+      opts += "<option disabled" + st + ">──────────────</option>";
+      opts += "<option value='fa'" + st + ">🆓 FA 池</option>";
+      return opts;
+    }
+    var bSel = document.getElementById("batterRankSelect");
+    var pSel = document.getElementById("pitcherRankSelect");
+    if (bSel) {
+      bSel.innerHTML = buildOptions();
+      bSel.addEventListener("change", function(){ renderBatters(bSel.value); });
+    }
+    if (pSel) {
+      pSel.innerHTML = buildOptions();
+      pSel.addEventListener("change", function(){ renderPitchers(pSel.value); });
+    }
+
+    renderBatters("me");
+    renderPitchers("me");
+  })();
+
   // --- Weekly trend chart ---
   (function buildTrendChart() {
     var weekly = D.weekly_stats || [];
@@ -2207,6 +2656,59 @@ var PITCHER_COLSPAN = 19;
     var prevBatters = (window.STATCAST_DATA && window.STATCAST_DATA.prev_batters) || {};
     var prevPitchers = (window.STATCAST_DATA && window.STATCAST_DATA.prev_pitchers) || {};
 
+    // ---- True-talent scoring (rate stats only, multi-year blend, sample regression) ----
+    // Avoids the small-sample / counting-stat-luck inflation of the original percentile fscore.
+    function _clamp01(v, lo, hi) { return Math.max(0, Math.min(100, (v - lo) / (hi - lo) * 100)); }
+    function batterTrueTalent(b) {
+      if (!b) return null;
+      var pa = b.pa || 0;
+      if (pa < 10) return null;
+      var xwoba = b.xwoba || 0;
+      var barrel = b.barrel_pct || 0;
+      var hh = b.hard_hit_pct || 0;
+      var bb = b.bb_pct || 0;
+      var k = b.k_pct || 25;
+      var sX = _clamp01(xwoba, 0.250, 0.450);
+      var sB = _clamp01(barrel, 0, 25);
+      var sH = _clamp01(hh, 25, 75);
+      var sBB = _clamp01(bb, 0, 20);
+      var sK = _clamp01(35 - k, 0, 20);
+      return sX*0.35 + sB*0.20 + sH*0.15 + sBB*0.15 + sK*0.15;
+    }
+    function pitcherTrueTalent(p) {
+      if (!p) return null;
+      var bf = p.bf || 0;
+      if (bf < 20) return null;
+      var xera = p.xera != null ? p.xera : 5;
+      var k = p.k_pct || 18;
+      var whiff = p.whiff_pct || 22;
+      var bb = p.bb_pct || 9;
+      var hh = p.hh_pct_against || 45;
+      var fb = p.fb_velo || 91;
+      var sX = _clamp01(5.5 - xera, 0, 3.5);
+      var sK = _clamp01(k - 14, 0, 25);
+      var sW = _clamp01(whiff - 18, 0, 25);
+      var sBB = _clamp01(12 - bb, 0, 12);
+      var sH = _clamp01(50 - hh, 0, 25);
+      var sF = _clamp01(fb - 90, 0, 8.3);
+      return sX*0.30 + sK*0.20 + sW*0.20 + sBB*0.10 + sH*0.10 + sF*0.10;
+    }
+    // Blend current + previous year, regress small samples toward prev (or league avg 50)
+    // - When current sample is full (≥ minSample), weight 70% current / 30% prev
+    // - When current sample is tiny, weight prev more heavily
+    function blendScore(cur, prev, sampleSize, minSample) {
+      if (cur === null && prev === null) return 50;
+      if (cur === null) return prev;
+      var reliab = Math.min(1, sampleSize / minSample);  // 0..1
+      if (prev === null) {
+        // Regress to league-average 50 if very small sample
+        return cur * reliab + 50 * (1 - reliab);
+      }
+      // Current carries 30% baseline + up to 40% more by sample (max 70%)
+      var curWt = 0.30 + 0.40 * reliab;
+      return cur * curWt + prev * (1 - curWt);
+    }
+
     function getPlayerInfo(player) {
       var key = normName(player.name);
       var b = allBatters[key];
@@ -2214,7 +2716,19 @@ var PITCHER_COLSPAN = 19;
       var prevB = prevBatters[key];
       var prevP = prevPitchers[key];
       var isPitcher = isPitcherPlayer(player, allPitchers, allBatters);
-      var score = isPitcher ? (pitcherScoreByName[key] || 50) : (batterScoreByName[key] || 50);
+      var score;
+      if (isPitcher) {
+        var cur = pitcherTrueTalent(p);
+        var prv = pitcherTrueTalent(prevP);
+        var bf = (p && p.bf) || 0;
+        score = blendScore(cur, prv, bf, 150);  // ~ 1.5 months full work
+      } else {
+        var cur = batterTrueTalent(b);
+        var prv = batterTrueTalent(prevB);
+        var pa = (b && b.pa) || 0;
+        score = blendScore(cur, prv, pa, 250);  // ~ 2 months full work
+      }
+      score = Math.round(score * 10) / 10;
       return { isPitcher: isPitcher, score: score, b: b, p: p, prevB: prevB, prevP: prevP };
     }
 
@@ -3073,6 +3587,240 @@ var PITCHER_COLSPAN = 19;
     });
     renderStream("1");
     renderMLBHeatmap();
+  })();
+
+  // --- Savant-style percentile panel per player ---
+  (function buildSavantPanel() {
+    var sel = document.getElementById("savantPlayerSelect");
+    var body = document.getElementById("savantBody");
+    if (!sel || !body) return;
+
+    // Build pools and pre-compute percentile rank arrays
+    var batterPoolFull = [];
+    var pitcherPoolFull = [];
+    for (var k in allBatters) { var b = allBatters[k]; if (b && (b.pa||0) >= 30) batterPoolFull.push(b); }
+    for (var k in allPitchers) { var p = allPitchers[k]; if (p && (p.bf||0) >= 30) pitcherPoolFull.push(p); }
+
+    // Sprint speed lookup
+    var sprintMap = {};
+    var S = window.STATCAST_DATA || {};
+    (S.sprint_speed || []).forEach(function(sp) {
+      var k = normName(sp.name);
+      if (k) sprintMap[k] = sp.sprint_speed;
+    });
+
+    function pctRank(value, vals, higherBetter) {
+      // returns percentile 1-100 (higher = better for player)
+      if (value === null || value === undefined || isNaN(value)) return null;
+      var sorted = vals.slice().filter(function(v){ return !isNaN(v); });
+      if (sorted.length === 0) return null;
+      sorted.sort(function(a,b){ return higherBetter ? a-b : b-a; });
+      var below = 0;
+      for (var i = 0; i < sorted.length; i++) {
+        if (higherBetter ? sorted[i] < value : sorted[i] > value) below++;
+        else break;
+      }
+      return Math.round(below / sorted.length * 100);
+    }
+
+    function tier(pct) {
+      if (pct === null) return "tier-mid";
+      if (pct >= 80) return "tier-top";
+      if (pct >= 60) return "tier-high";
+      if (pct >= 40) return "tier-mid";
+      if (pct >= 20) return "tier-low";
+      return "tier-bottom";
+    }
+
+    function bar(label, value, pct, fmtFn) {
+      var pctDisp = pct === null ? "—" : pct;
+      var tierCls = tier(pct);
+      var leftPct = pct === null ? 50 : Math.max(2, Math.min(98, pct));
+      return "<div class='pct-row'>" +
+        "<div class='pct-label'>" + label + "</div>" +
+        "<div class='pct-bar-container'>" +
+        "<div class='pct-marker " + tierCls + "' style='left:" + leftPct + "%'>" + pctDisp + "</div>" +
+        "</div>" +
+        "<div class='pct-value'>" + fmtFn(value) + "</div>" +
+        "</div>";
+    }
+
+    // Get roster (active + BN + IL)
+    var roster = (D.roster || []).slice();
+    roster.sort(function(a, b) {
+      var isAp = isPitcherPlayer(a, allPitchers, allBatters);
+      var isBp = isPitcherPlayer(b, allPitchers, allBatters);
+      if (isAp !== isBp) return isAp ? 1 : -1;
+      return a.name.localeCompare(b.name);
+    });
+    sel.innerHTML = "";
+    roster.forEach(function(p) {
+      var o = document.createElement("option");
+      o.value = p.name;
+      var isP = isPitcherPlayer(p, allPitchers, allBatters);
+      o.textContent = (isP ? "⚾ " : "🏏 ") + p.name + " (" + p.pos + ") - " + p.team;
+      sel.appendChild(o);
+    });
+
+    function fmt3(v){ return (v===null||isNaN(v))?"—":Number(v).toFixed(3); }
+    function fmt1(v){ return (v===null||isNaN(v))?"—":Number(v).toFixed(1); }
+    function fmt2(v){ return (v===null||isNaN(v))?"—":Number(v).toFixed(2); }
+    function fmtP(v){ return (v===null||isNaN(v))?"—":Number(v).toFixed(1)+"%"; }
+    function fmtMph(v){ return (v===null||isNaN(v))?"—":Number(v).toFixed(1)+" mph"; }
+
+    function renderBatter(player) {
+      var key = normName(player.name);
+      var b = allBatters[key];
+      if (!b) {
+        body.innerHTML = "<div class='text-slate-500 p-6 text-center'>查無 Statcast 資料(PA 不足或新人尚未累計)</div>";
+        return;
+      }
+      var pool = batterPoolFull;
+      // Precompute value arrays
+      var vals = {
+        xwoba: pool.map(function(x){return x.xwoba;}),
+        xba: pool.map(function(x){return x.xba;}),
+        xslg: pool.map(function(x){return x.xslg;}),
+        ev50: pool.map(function(x){return x.ev50;}),
+        barrel: pool.map(function(x){return x.barrel_pct;}),
+        hh: pool.map(function(x){return x.hard_hit_pct;}),
+        sweet: pool.map(function(x){return x.sweet_spot_pct;}),
+        ideal: pool.map(function(x){return x.ideal_angle_pct;}),
+        bat_speed: pool.map(function(x){return x.bat_speed;}),
+        solid: pool.map(function(x){return x.solid_contact_pct;}),
+        bb: pool.map(function(x){return x.bb_pct;}),
+        k: pool.map(function(x){return x.k_pct;}),
+        whiff: pool.map(function(x){return x.whiff_pct;}),
+        swing: pool.map(function(x){return x.swing_pct;}),
+        zswing: pool.map(function(x){return x.z_swing_pct;})
+      };
+      var sprint = sprintMap[key];
+      var sprintVals = (S.sprint_speed || []).map(function(s){ return s.sprint_speed; });
+
+      // Header — with MLB headshot
+      var pid = b.player_id;
+      var photoUrl = pid ? ("https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_213,q_auto:best/v1/people/" + pid + "/headshot/67/current") : "";
+      var photoHtml = pid
+        ? "<img class='savant-header-photo' src='" + photoUrl + "' onerror='this.style.display=\"none\";this.nextElementSibling.style.display=\"flex\"' alt='" + player.name + "'>" +
+          "<div class='savant-header-photo' style='display:none;align-items:center;justify-content:center;font-size:36px'>🏏</div>"
+        : "<div class='savant-header-photo' style='display:flex;align-items:center;justify-content:center;font-size:36px'>🏏</div>";
+      var header = "<div class='savant-header'>" + photoHtml +
+        "<div>" +
+          "<div class='savant-header-name'>" + player.name + "</div>" +
+          "<div class='savant-header-meta'><span class='savant-header-team'>" + player.team + "</span>" + player.pos + " · PA " + b.pa + "</div>" +
+        "</div></div>";
+
+      // Section 1: Value/Quality of Contact
+      var valueSec = "<div class='pct-section'><div class='pct-section-title'>📊 整體輸出 (Value)</div>" +
+        bar("xwOBA", b.xwoba, pctRank(b.xwoba, vals.xwoba, true), fmt3) +
+        bar("xBA", b.xba, pctRank(b.xba, vals.xba, true), fmt3) +
+        bar("xSLG", b.xslg, pctRank(b.xslg, vals.xslg, true), fmt3) +
+        "</div>";
+
+      // Section 2: Contact Quality
+      var contactSec = "<div class='pct-section'><div class='pct-section-title'>💥 擊球品質</div>" +
+        bar("Avg EV50", b.ev50, pctRank(b.ev50, vals.ev50, true), fmt1) +
+        bar("Barrel %", b.barrel_pct, pctRank(b.barrel_pct, vals.barrel, true), fmtP) +
+        bar("Hard-Hit %", b.hard_hit_pct, pctRank(b.hard_hit_pct, vals.hh, true), fmtP) +
+        bar("Sweet Spot %", b.sweet_spot_pct, pctRank(b.sweet_spot_pct, vals.sweet, true), fmtP) +
+        bar("Ideal Angle %", b.ideal_angle_pct, pctRank(b.ideal_angle_pct, vals.ideal, true), fmtP) +
+        bar("Solid Contact %", b.solid_contact_pct, pctRank(b.solid_contact_pct, vals.solid, true), fmtP) +
+        bar("Bat Speed", b.bat_speed, pctRank(b.bat_speed, vals.bat_speed, true), fmtMph) +
+        "</div>";
+
+      // Section 3: Plate Discipline
+      var discSec = "<div class='pct-section'><div class='pct-section-title'>👁️ 選球眼</div>" +
+        bar("BB %", b.bb_pct, pctRank(b.bb_pct, vals.bb, true), fmtP) +
+        bar("K %", b.k_pct, pctRank(b.k_pct, vals.k, false), fmtP) +
+        bar("Whiff %", b.whiff_pct, pctRank(b.whiff_pct, vals.whiff, false), fmtP) +
+        bar("Z-Swing %", b.z_swing_pct, pctRank(b.z_swing_pct, vals.zswing, true), fmtP) +
+        "</div>";
+
+      // Section 4: Speed
+      var speedSec = "";
+      if (sprint !== undefined) {
+        speedSec = "<div class='pct-section'><div class='pct-section-title'>🏃 速度</div>" +
+          bar("Sprint Speed", sprint, pctRank(sprint, sprintVals, true), function(v){return Number(v).toFixed(2)+" ft/s";}) +
+          "</div>";
+      }
+
+      body.innerHTML = header + valueSec + contactSec + discSec + speedSec;
+    }
+
+    function renderPitcher(player) {
+      var key = normName(player.name);
+      var p = allPitchers[key];
+      if (!p) {
+        body.innerHTML = "<div class='text-slate-500 p-6 text-center'>查無 Statcast 資料(BF 不足或新人尚未累計)</div>";
+        return;
+      }
+      var pool = pitcherPoolFull;
+      var vals = {
+        xera: pool.map(function(x){return x.xera;}),
+        xwoba: pool.map(function(x){return x.xwoba_against;}),
+        woba: pool.map(function(x){return x.woba_against;}),
+        k: pool.map(function(x){return x.k_pct;}),
+        bb: pool.map(function(x){return x.bb_pct;}),
+        whiff: pool.map(function(x){return x.whiff_pct;}),
+        swing: pool.map(function(x){return x.swing_pct;}),
+        hh: pool.map(function(x){return x.hh_pct_against;}),
+        fb: pool.map(function(x){return x.fb_velo;})
+      };
+
+      var pid = p.player_id;
+      var photoUrl = pid ? ("https://img.mlbstatic.com/mlb-photos/image/upload/d_people:generic:headshot:67:current.png/w_213,q_auto:best/v1/people/" + pid + "/headshot/67/current") : "";
+      var photoHtml = pid
+        ? "<img class='savant-header-photo' src='" + photoUrl + "' onerror='this.style.display=\"none\";this.nextElementSibling.style.display=\"flex\"' alt='" + player.name + "'>" +
+          "<div class='savant-header-photo' style='display:none;align-items:center;justify-content:center;font-size:36px'>⚾</div>"
+        : "<div class='savant-header-photo' style='display:flex;align-items:center;justify-content:center;font-size:36px'>⚾</div>";
+      var header = "<div class='savant-header'>" + photoHtml +
+        "<div>" +
+          "<div class='savant-header-name'>" + player.name + "</div>" +
+          "<div class='savant-header-meta'><span class='savant-header-team'>" + player.team + "</span>" + player.pos + " · " + p.hand + "投 · BF " + p.bf + "</div>" +
+        "</div></div>";
+
+      var valueSec = "<div class='pct-section'><div class='pct-section-title'>📊 整體壓制力</div>" +
+        bar("xERA", p.xera, pctRank(p.xera, vals.xera, false), fmt2) +
+        bar("ERA(實際)", p.era, null, fmt2) +
+        bar("被 xwOBA", p.xwoba_against, pctRank(p.xwoba_against, vals.xwoba, false), fmt3) +
+        bar("被 wOBA", p.woba_against, pctRank(p.woba_against, vals.woba, false), fmt3) +
+        "</div>";
+
+      var stuffSec = "<div class='pct-section'><div class='pct-section-title'>🔥 Stuff(球質)</div>" +
+        bar("K %", p.k_pct, pctRank(p.k_pct, vals.k, true), fmtP) +
+        bar("Whiff %", p.whiff_pct, pctRank(p.whiff_pct, vals.whiff, true), fmtP) +
+        bar("FB Velo", p.fb_velo, pctRank(p.fb_velo, vals.fb, true), fmtMph) +
+        "</div>";
+
+      var commandSec = "<div class='pct-section'><div class='pct-section-title'>🎯 控球與接觸</div>" +
+        bar("BB %", p.bb_pct, pctRank(p.bb_pct, vals.bb, false), fmtP) +
+        bar("Hard-Hit % 被打", p.hh_pct_against, pctRank(p.hh_pct_against, vals.hh, false), fmtP) +
+        "</div>";
+
+      // Counting stats footer
+      var counts = "<div class='pct-section'><div class='pct-section-title'>📈 累計數據</div>" +
+        "<div class='grid grid-cols-2 md:grid-cols-4 gap-3 text-sm'>" +
+        "<div><div class='text-slate-500 text-xs'>W</div><div class='font-mono text-lg'>" + (p.wins||0) + "</div></div>" +
+        "<div><div class='text-slate-500 text-xs'>L</div><div class='font-mono text-lg'>" + (p.losses||0) + "</div></div>" +
+        "<div><div class='text-slate-500 text-xs'>QS</div><div class='font-mono text-lg'>" + (p.qs||0) + "</div></div>" +
+        "<div><div class='text-slate-500 text-xs'>SV+H</div><div class='font-mono text-lg'>" + (p.sv_plus_hold||0) + "</div></div>" +
+        "</div></div>";
+
+      body.innerHTML = header + valueSec + stuffSec + commandSec + counts;
+    }
+
+    function render(name) {
+      var player = roster.find(function(p){ return p.name === name; });
+      if (!player) return;
+      var isP = isPitcherPlayer(player, allPitchers, allBatters);
+      if (isP) renderPitcher(player); else renderBatter(player);
+    }
+
+    sel.addEventListener("change", function(e){ render(e.target.value); });
+    if (roster.length > 0) {
+      sel.value = roster[0].name;
+      render(roster[0].name);
+    }
   })();
 
   // --- Waivers: split by position type, show both batter/pitcher rows with appropriate columns ---

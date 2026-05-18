@@ -607,6 +607,7 @@
     <button class="tab-btn px-4 py-2 text-sm font-medium rounded-t-md text-slate-600 hover:bg-slate-100" data-tab="weekstats">📋 本週數據排名</button>
     <button class="tab-btn px-4 py-2 text-sm font-medium rounded-t-md text-slate-600 hover:bg-slate-100" data-tab="stream">🎯 明日 Stream</button>
     <button class="tab-btn px-4 py-2 text-sm font-medium rounded-t-md text-slate-600 hover:bg-slate-100" data-tab="savant">🎯 球員百分位</button>
+    <button class="tab-btn px-4 py-2 text-sm font-medium rounded-t-md text-slate-600 hover:bg-slate-100" data-tab="forecast">🔮 賽季預測</button>
   </div>
 
   <div id="noData" class="hidden bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-900 mb-3">尚無 Yahoo 資料 — Statcast 分頁仍可使用。</div>
@@ -903,6 +904,28 @@
         <select id="savantPlayerSelect" class="text-sm border border-slate-300 rounded px-2 py-1 min-w-[220px]"></select>
       </div>
       <div id="savantBody" class="p-4"></div>
+    </div>
+  </div>
+
+  <div id="tab-forecast" class="tab-panel hidden">
+    <div class="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden mb-4">
+      <div class="px-4 py-3 border-b border-slate-200 flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h3 class="font-semibold">🔮 賽季預測 — 個項數據前段預估</h3>
+          <p class="text-xs text-slate-500 mt-1">用 Prospect Metrics（rate stats）預測賽季最終各項類別前 N 名 ‧ 公式組合：R/OBP/AVG/HR/SB/RBI 各自不同 ‧ 加權整合各 Statcast 信號</p>
+        </div>
+        <div class="flex items-center gap-2 text-xs">
+          <span class="text-slate-500">顯示前</span>
+          <select id="forecastTopN" class="border border-slate-300 rounded px-2 py-1">
+            <option value="15">15</option>
+            <option value="25" selected>25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+          <span class="text-slate-500">名</span>
+        </div>
+      </div>
+      <div id="forecastBody" class="p-4"></div>
     </div>
   </div>
 
@@ -4263,6 +4286,194 @@ var PITCHER_COLSPAN = 19;
   }
   if (!waiverHtml) waiverHtml = "<tbody><tr><td class='text-center py-6 text-slate-500'>尚無名單</td></tr></tbody>";
   document.getElementById("waiversTable").innerHTML = waiverHtml;
+})();
+
+// ============================================================
+// Forecast tab — predict season-end batter category rankings
+// Uses prospect-metric composites: rate-stat blends (cur + prev)
+//   R   = OBP + BB% + Contact% + HardHit% + Launch Angle
+//   HR  = ISO + Barrel% + EV + EV90
+//   OBP = BB% + Contact% + HardHit% + Launch Angle
+//   AVG = OBP + BB% + Contact%
+//   SB  = OBP + Run Speed
+//   RBI = ISO + Barrel% + EV + EV90
+// ============================================================
+(function buildForecastPanel() {
+  var body = document.getElementById("forecastBody");
+  var topNSel = document.getElementById("forecastTopN");
+  if (!body || !topNSel) return;
+
+  var S = window.STATCAST_DATA || {};
+  var allB = S.all_batters || {};
+  var prevB = S.prev_batters || {};
+
+  // Sprint speed lookup (top-30 leaderboard only)
+  var sprintMap = {};
+  (S.sprint_speed || []).forEach(function(sp){
+    var k = normName(sp.name);
+    if (k) sprintMap[k] = { speed: sp.sprint_speed || 0, bolts: sp.bolts || 0 };
+  });
+
+  // Build batter pool (PA ≥ 50 to filter noise)
+  var pool = [];
+  for (var k in allB) {
+    var b = allB[k];
+    if (!b || (b.pa||0) < 50) continue;
+    pool.push({ key: k, b: b, prev: prevB[k] || null });
+  }
+  if (pool.length === 0) {
+    body.innerHTML = "<div class='text-sm text-slate-500'>尚無打者資料</div>";
+    return;
+  }
+
+  // Blend cur+prev rate stats (conservative for small samples)
+  function blendStat(cur, prev, pa) {
+    if ((cur == null || isNaN(cur)) && (prev == null || isNaN(prev))) return null;
+    if (cur == null || isNaN(cur)) return prev;
+    if (prev == null || isNaN(prev)) return cur;
+    var reliab = Math.min(1, pa / 300);  // need ~300 PA for full credit
+    var cw = 0.15 + 0.75 * Math.pow(reliab, 1.2);
+    return cur * cw + prev * (1 - cw);
+  }
+
+  // Compute derived metrics per player (using blended rates)
+  pool.forEach(function(x){
+    var b = x.b, p = x.prev || {};
+    var pa = b.pa || 0;
+    x.metric = {
+      bb:        blendStat(b.bb_pct, p.bb_pct, pa) || 0,
+      contact:   100 - (blendStat(b.whiff_pct, p.whiff_pct, pa) || 22),   // contact = 100 - whiff
+      hardHit:   blendStat(b.hard_hit_pct, p.hard_hit_pct, pa) || 0,
+      launch:    blendStat(b.sweet_spot_pct, p.sweet_spot_pct, pa) || 0,  // sweet-spot% as launch-angle quality proxy
+      barrel:    blendStat(b.barrel_pct, p.barrel_pct, pa) || 0,
+      iso:       (blendStat(b.xslg, p.xslg, pa) || 0) - (blendStat(b.xba, p.xba, pa) || 0),
+      ev:        blendStat(b.adj_ev, p.adj_ev, pa) || 0,    // avg_hyper_speed
+      ev90:      blendStat(b.ev50, p.ev50, pa) || 0,        // avg_best_speed (top 50%) as EV90 proxy
+      xba:       blendStat(b.xba, p.xba, pa) || 0,
+      xwoba:     blendStat(b.xwoba, p.xwoba, pa) || 0,
+      sprint:    (sprintMap[x.key] && sprintMap[x.key].speed) || 0,
+      bolts:     (sprintMap[x.key] && sprintMap[x.key].bolts) || 0
+    };
+    // Derived OBP estimate: (BB% / 100) + xBA * (1 - BB%/100)
+    var bbF = x.metric.bb / 100;
+    x.metric.obp = bbF + x.metric.xba * (1 - bbF);
+  });
+
+  // Percentile rank helper (returns 0-100, higher = better)
+  function pctRank(getter) {
+    var vals = pool.map(getter);
+    var sorted = vals.slice().sort(function(a,b){ return a - b; });
+    return vals.map(function(v){
+      var below = 0;
+      for (var i = 0; i < sorted.length; i++) { if (sorted[i] < v) below++; else break; }
+      return Math.round(below / sorted.length * 100);
+    });
+  }
+
+  // Pre-compute percentiles for each metric
+  var P = {
+    obp:      pctRank(function(x){ return x.metric.obp; }),
+    bb:       pctRank(function(x){ return x.metric.bb; }),
+    contact:  pctRank(function(x){ return x.metric.contact; }),
+    hardHit:  pctRank(function(x){ return x.metric.hardHit; }),
+    launch:   pctRank(function(x){ return x.metric.launch; }),
+    iso:      pctRank(function(x){ return x.metric.iso; }),
+    barrel:   pctRank(function(x){ return x.metric.barrel; }),
+    ev:       pctRank(function(x){ return x.metric.ev; }),
+    ev90:     pctRank(function(x){ return x.metric.ev90; }),
+    sprint:   pctRank(function(x){ return x.metric.sprint; })
+  };
+
+  // Composite scores per category
+  pool.forEach(function(x, i){
+    x.scores = {
+      R:   (P.obp[i] + P.bb[i] + P.contact[i] + P.hardHit[i] + P.launch[i]) / 5,
+      HR:  (P.iso[i] + P.barrel[i] + P.ev[i] + P.ev90[i]) / 4,
+      OBP: (P.bb[i] + P.contact[i] + P.hardHit[i] + P.launch[i]) / 4,
+      AVG: (P.obp[i] + P.bb[i] + P.contact[i]) / 3,
+      SB:  (P.obp[i] + P.sprint[i]) / 2,
+      RBI: (P.iso[i] + P.barrel[i] + P.ev[i] + P.ev90[i]) / 4
+    };
+  });
+
+  // Owner lookup (my roster highlighted)
+  var D = window.FANTASY_DATA || {};
+  var myKey = D.my_team_key;
+  var myTeam = D.my_team || "";
+  var ownerByKey = {};
+  Object.keys(D.all_rosters || {}).forEach(function(tk){
+    var teamName = (D.standings || []).find(function(t){ return t.team_key === tk; }) || {};
+    (D.all_rosters[tk] || []).forEach(function(p){
+      ownerByKey[normName(p.name)] = teamName.team || tk;
+    });
+  });
+
+  var categories = [
+    { key:'R',   name:'R 得分',     emoji:'🏃', desc:'OBP + BB% + Contact% + HardHit% + 揮擊角度' },
+    { key:'HR',  name:'HR 全壘打',  emoji:'💥', desc:'ISO + Barrel% + EV + EV90' },
+    { key:'OBP', name:'OBP 上壘率', emoji:'👁️', desc:'BB% + Contact% + HardHit% + 揮擊角度' },
+    { key:'AVG', name:'AVG 打擊率', emoji:'🎯', desc:'OBP + BB% + Contact%' },
+    { key:'SB',  name:'SB 盜壘',    emoji:'⚡', desc:'OBP + Run Speed（僅前 30 名跑者有 sprint 資料）' },
+    { key:'RBI', name:'RBI 打點',   emoji:'💪', desc:'ISO + Barrel% + EV + EV90' }
+  ];
+
+  function tierBadge(s) {
+    if (s >= 80) return { label:'S+', cls:'bg-green-500/20 text-green-300' };
+    if (s >= 65) return { label:'S',  cls:'bg-cyan-500/20 text-cyan-300' };
+    if (s >= 50) return { label:'A',  cls:'bg-blue-500/20 text-blue-300' };
+    if (s >= 35) return { label:'B',  cls:'bg-slate-500/20 text-slate-300' };
+    return { label:'C', cls:'bg-orange-500/20 text-orange-300' };
+  }
+
+  function render() {
+    var topN = parseInt(topNSel.value || 25, 10);
+    var html = "<div class='grid grid-cols-1 lg:grid-cols-2 gap-4'>";
+    categories.forEach(function(cat){
+      var sorted = pool.slice().sort(function(a, b){ return b.scores[cat.key] - a.scores[cat.key]; }).slice(0, topN);
+      html += "<div class='border border-slate-700/40 rounded-lg overflow-hidden bg-slate-900/30'>";
+      html += "<div class='px-3 py-2 bg-slate-800/50 border-b border-slate-700/40'>";
+      html += "<div class='text-sm font-semibold text-slate-200'>" + cat.emoji + " " + cat.name + " <span class='text-slate-500 font-normal'>· 前 " + topN + " 名</span></div>";
+      html += "<div class='text-[10px] text-slate-500 mt-0.5'>" + cat.desc + "</div>";
+      html += "</div>";
+      html += "<div class='overflow-x-auto'><table class='w-full text-xs'>";
+      html += "<thead><tr><th class='text-center px-1'>#</th><th class='text-left px-2'>球員</th><th class='text-left'>歸屬</th><th class='text-right'>Score</th><th class='text-center'>Tier</th></tr></thead><tbody>";
+      sorted.forEach(function(x, i){
+        var s = x.scores[cat.key];
+        var t = tierBadge(s);
+        var owner = ownerByKey[x.key] || "FA";
+        var isMine = (owner === myTeam);
+        var rowStyle = isMine ? "background:linear-gradient(90deg, rgba(34,211,238,0.18), transparent 70%)" : "";
+        var ownerCls = isMine ? "text-cyan-300 font-semibold" : (owner === "FA" ? "text-amber-400" : "text-slate-400");
+        html += "<tr style='" + rowStyle + "'>";
+        html += "<td class='text-center font-mono'>" + (i+1) + "</td>";
+        html += "<td class='font-medium px-2'>" + x.b.name + "</td>";
+        html += "<td class='" + ownerCls + " text-[10px]'>" + owner + "</td>";
+        html += "<td class='text-right font-mono font-bold text-cyan-300'>" + s.toFixed(1) + "</td>";
+        html += "<td class='text-center'><span class='text-[9px] font-bold px-1.5 py-0.5 rounded " + t.cls + "'>" + t.label + "</span></td>";
+        html += "</tr>";
+      });
+      html += "</tbody></table></div></div>";
+    });
+    html += "</div>";
+
+    // Footer explanation
+    html += "<div class='mt-4 p-3 bg-slate-800/30 border border-slate-700/40 rounded text-[11px] text-slate-400'>";
+    html += "<div class='font-semibold text-slate-300 mb-1'>📐 評分方法</div>";
+    html += "Score 0-100 = 各指標百分位排名平均值。資料採用 cur (2026) + prev (2025) <strong>樣本加權混合</strong>（PA 越少越靠 prev）→ 避免小樣本噪音。";
+    html += "<br>· Launch Angle 用 Sweet-Spot % 代理（最佳擊球角度比例）";
+    html += "<br>· Contact% = 100 - Whiff%（揮空越少 = 接觸越好）";
+    html += "<br>· OBP 估算 = BB% + xBA × (1 - BB%)";
+    html += "<br>· ISO = xSLG - xBA";
+    html += "<br>· EV = Adj EV（avg_hyper_speed）／EV90 = ev50（avg_best_speed）";
+    html += "<br>· Run Speed 只有聯盟前 30 名跑者有資料，其他人預設 0（SB 排名僅供參考）";
+    html += "<br>· <span class='text-cyan-300'>青色背景</span> = 你的陣容球員 ‧ <span class='text-amber-400'>橘色</span> = FA";
+    html += "</div>";
+
+    body.innerHTML = html;
+  }
+
+  topNSel.addEventListener("change", render);
+  render();
 })();
 </script>
 </body>

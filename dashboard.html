@@ -4314,11 +4314,12 @@ var PITCHER_COLSPAN = 19;
     if (k) sprintMap[k] = { speed: sp.sprint_speed || 0, bolts: sp.bolts || 0 };
   });
 
-  // Build batter pool (PA ≥ 50 to filter noise)
+  // Build batter pool (PA ≥ 150 + xwOBA ≥ .315 quality gate)
   var pool = [];
   for (var k in allB) {
     var b = allB[k];
-    if (!b || (b.pa||0) < 50) continue;
+    if (!b || (b.pa||0) < 150) continue;
+    if ((b.xwoba||0) < 0.315) continue;  // quality floor — avoid "discipline-only, no production" outliers
     pool.push({ key: k, b: b, prev: prevB[k] || null });
   }
   if (pool.length === 0) {
@@ -4326,31 +4327,54 @@ var PITCHER_COLSPAN = 19;
     return;
   }
 
-  // Blend cur+prev rate stats (conservative for small samples)
-  function blendStat(cur, prev, pa) {
-    if ((cur == null || isNaN(cur)) && (prev == null || isNaN(prev))) return null;
-    if (cur == null || isNaN(cur)) return prev;
-    if (prev == null || isNaN(prev)) return cur;
-    var reliab = Math.min(1, pa / 300);  // need ~300 PA for full credit
+  // ---- Compute league averages from cur-year qualified batters (PA ≥ 100) ----
+  // Used as regression target for rookies / players without prev-year data
+  var leagueAvg = {};
+  var avgFields = ['bb_pct','whiff_pct','hard_hit_pct','sweet_spot_pct','barrel_pct','xslg','xba','xwoba','adj_ev','ev50'];
+  avgFields.forEach(function(f){ leagueAvg[f] = 0; });
+  var avgN = 0;
+  for (var lk in allB) {
+    var lb = allB[lk];
+    if (!lb || (lb.pa||0) < 100) continue;
+    avgFields.forEach(function(f){ leagueAvg[f] += lb[f] || 0; });
+    avgN++;
+  }
+  if (avgN > 0) avgFields.forEach(function(f){ leagueAvg[f] /= avgN; });
+
+  // Blend cur+prev rate stats. KEY FIX: when prev is null (rookie),
+  // regress current toward league average — don't trust raw cur stats fully.
+  function blendStat(cur, prev, pa, fallback) {
+    var avg = (fallback != null) ? fallback : 0;
+    if (cur == null || isNaN(cur)) {
+      if (prev != null && !isNaN(prev)) return prev;
+      return avg;
+    }
+    if (prev == null || isNaN(prev)) {
+      // Rookie / no prev year → regress to league avg based on sample size
+      var reliab = Math.min(1, pa / 300);
+      var w = Math.pow(reliab, 1.2);
+      return cur * w + avg * (1 - w);
+    }
+    var reliab = Math.min(1, pa / 300);
     var cw = 0.15 + 0.75 * Math.pow(reliab, 1.2);
     return cur * cw + prev * (1 - cw);
   }
 
-  // Compute derived metrics per player (using blended rates)
+  // Compute derived metrics per player (blended rates; rookies regress to league avg)
   pool.forEach(function(x){
     var b = x.b, p = x.prev || {};
     var pa = b.pa || 0;
     x.metric = {
-      bb:        blendStat(b.bb_pct, p.bb_pct, pa) || 0,
-      contact:   100 - (blendStat(b.whiff_pct, p.whiff_pct, pa) || 22),   // contact = 100 - whiff
-      hardHit:   blendStat(b.hard_hit_pct, p.hard_hit_pct, pa) || 0,
-      launch:    blendStat(b.sweet_spot_pct, p.sweet_spot_pct, pa) || 0,  // sweet-spot% as launch-angle quality proxy
-      barrel:    blendStat(b.barrel_pct, p.barrel_pct, pa) || 0,
-      iso:       (blendStat(b.xslg, p.xslg, pa) || 0) - (blendStat(b.xba, p.xba, pa) || 0),
-      ev:        blendStat(b.adj_ev, p.adj_ev, pa) || 0,    // avg_hyper_speed
-      ev90:      blendStat(b.ev50, p.ev50, pa) || 0,        // avg_best_speed (top 50%) as EV90 proxy
-      xba:       blendStat(b.xba, p.xba, pa) || 0,
-      xwoba:     blendStat(b.xwoba, p.xwoba, pa) || 0,
+      bb:        blendStat(b.bb_pct, p.bb_pct, pa, leagueAvg.bb_pct),
+      contact:   100 - blendStat(b.whiff_pct, p.whiff_pct, pa, leagueAvg.whiff_pct),
+      hardHit:   blendStat(b.hard_hit_pct, p.hard_hit_pct, pa, leagueAvg.hard_hit_pct),
+      launch:    blendStat(b.sweet_spot_pct, p.sweet_spot_pct, pa, leagueAvg.sweet_spot_pct),
+      barrel:    blendStat(b.barrel_pct, p.barrel_pct, pa, leagueAvg.barrel_pct),
+      iso:       blendStat(b.xslg, p.xslg, pa, leagueAvg.xslg) - blendStat(b.xba, p.xba, pa, leagueAvg.xba),
+      ev:        blendStat(b.adj_ev, p.adj_ev, pa, leagueAvg.adj_ev),
+      ev90:      blendStat(b.ev50, p.ev50, pa, leagueAvg.ev50),
+      xba:       blendStat(b.xba, p.xba, pa, leagueAvg.xba),
+      xwoba:     blendStat(b.xwoba, p.xwoba, pa, leagueAvg.xwoba),
       sprint:    (sprintMap[x.key] && sprintMap[x.key].speed) || 0,
       bolts:     (sprintMap[x.key] && sprintMap[x.key].bolts) || 0
     };

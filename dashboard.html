@@ -848,7 +848,7 @@
       <div class="px-4 py-3 border-b border-slate-200 flex items-center justify-between flex-wrap gap-3">
         <div>
           <h3 class="font-semibold">🤝 交易建議產生器</h3>
-          <p class="text-xs text-slate-500 mt-1">挑一個對手 → 系統根據你的弱項 + 對方強項 + Statcast 分數,推薦雙贏交易</p>
+          <p class="text-xs text-slate-500 mt-1">挑一個對手 → 用「當年 + 過去 2 年 track record」綜合 Statcast 分數推薦雙贏交易</p>
         </div>
         <select id="tradeTeamSelect" class="text-sm border border-slate-300 rounded px-2 py-1 min-w-[200px]"></select>
       </div>
@@ -857,7 +857,7 @@
     <div class="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden mb-4">
       <div class="px-4 py-3 border-b border-slate-200">
         <h3 class="font-semibold">🛠️ 自訂交易分析器</h3>
-        <p class="text-xs text-slate-500 mt-1">勾選你想送出的球員 + 對方要送來的球員 → 即時看公平度、類別影響、最終建議</p>
+        <p class="text-xs text-slate-500 mt-1">勾選送出 + 收進球員 → 即時看公平度、類別影響、最終建議 ‧ 評分混合「當年 + 過去 2 年」track record</p>
       </div>
       <div id="customTradeBody" class="p-4"></div>
     </div>
@@ -2685,6 +2685,34 @@ var PITCHER_COLSPAN = 19;
 
     var prevBatters = (window.STATCAST_DATA && window.STATCAST_DATA.prev_batters) || {};
     var prevPitchers = (window.STATCAST_DATA && window.STATCAST_DATA.prev_pitchers) || {};
+    var prev2Batters = (window.STATCAST_DATA && window.STATCAST_DATA.prev2_batters) || {};
+    var prev2Pitchers = (window.STATCAST_DATA && window.STATCAST_DATA.prev2_pitchers) || {};
+
+    // Combine prev (Y-1) + prev2 (Y-2) into a single "2-year track record" record.
+    // — Rate stats: PA/BF-weighted average across the two years
+    // — Counting stats (W, QS, SV): averaged as PER-YEAR rate (consistent interpretation)
+    // — Sample (PA/BF): summed (more sample = more confidence in the merged stats)
+    // If only one year exists, just clone it (per-year fields are already 1-year totals).
+    function mergeTwoYears(y1, y2, isPitcher) {
+      if (!y1 && !y2) return null;
+      if (!y2) { var c1 = Object.assign({}, y1); c1._years = 1; return c1; }
+      if (!y1) { var c2 = Object.assign({}, y2); c2._years = 1; return c2; }
+      var n1 = isPitcher ? (y1.bf||0) : (y1.pa||0);
+      var n2 = isPitcher ? (y2.bf||0) : (y2.pa||0);
+      var total = n1 + n2;
+      if (total === 0) { var c = Object.assign({}, y1); c._years = 1; return c; }
+      function wAvg(a, b) { return ((a||0)*n1 + (b||0)*n2) / total; }
+      var merged = { name: y1.name || y2.name, _years: 2 };
+      var rateFields = isPitcher
+        ? ['xera','k_pct','bb_pct','whiff_pct','hh_pct_against','fb_velo','woba_against','xwoba_against','sinker_velo','slider_velo','era']
+        : ['xwoba','xba','xslg','bb_pct','k_pct','barrel_pct','hard_hit_pct','bat_speed','sweet_spot_pct','ev50','adj_ev','whiff_pct','attack_angle','ideal_angle_pct','solid_contact_pct','swing_pct','z_swing_pct','woba'];
+      rateFields.forEach(function(f){ merged[f] = wAvg(y1[f], y2[f]); });
+      // Counting stats → PER-YEAR average (so downstream "wins = 18" means 18/season)
+      var sumFields = isPitcher ? ['wins','losses','qs','sv','hold','sv_plus_hold'] : [];
+      sumFields.forEach(function(f){ merged[f] = ((y1[f]||0) + (y2[f]||0)) / 2; });
+      if (isPitcher) merged.bf = total; else merged.pa = total;
+      return merged;
+    }
 
     // ---- True-talent scoring (rate stats only, multi-year blend, sample regression) ----
     // Avoids the small-sample / counting-stat-luck inflation of the original percentile fscore.
@@ -2764,23 +2792,36 @@ var PITCHER_COLSPAN = 19;
       var key = normName(player.name);
       var b = allBatters[key];
       var p = allPitchers[key];
-      var prevB = prevBatters[key];
-      var prevP = prevPitchers[key];
+      var prevB1 = prevBatters[key];
+      var prevP1 = prevPitchers[key];
+      var prevB2 = prev2Batters[key];
+      var prevP2 = prev2Pitchers[key];
+      // Merge Y-1 + Y-2 into a single PA/BF-weighted "2-year track record"
+      var prevB = mergeTwoYears(prevB1, prevB2, false);
+      var prevP = mergeTwoYears(prevP1, prevP2, true);
+
       var isPitcher = isPitcherPlayer(player, allPitchers, allBatters);
       var score;
       if (isPitcher) {
         var cur = pitcherTrueTalent(p);
         var prv = pitcherTrueTalent(prevP);
         var bf = (p && p.bf) || 0;
-        score = blendScore(cur, prv, bf, 150);  // ~ 1.5 months full work
+        score = blendScore(cur, prv, bf, 150);
       } else {
         var cur = batterTrueTalent(b);
         var prv = batterTrueTalent(prevB);
         var pa = (b && b.pa) || 0;
-        score = blendScore(cur, prv, pa, 250);  // ~ 2 months full work
+        score = blendScore(cur, prv, pa, 250);
       }
       score = Math.round(score * 10) / 10;
-      return { isPitcher: isPitcher, score: score, b: b, p: p, prevB: prevB, prevP: prevP, name: player ? player.name : null };
+      return {
+        isPitcher: isPitcher, score: score,
+        b: b, p: p,
+        prevB: prevB, prevP: prevP,    // merged 2-year
+        prevB1: prevB1, prevP1: prevP1, // raw Y-1 (for display)
+        prevB2: prevB2, prevP2: prevP2, // raw Y-2 (for display)
+        name: player ? player.name : null
+      };
     }
 
     // ---- Category metrics (shared by render + custom trade builder) ----
@@ -2841,10 +2882,10 @@ var PITCHER_COLSPAN = 19;
 
       // ---------- Pitcher cats ----------
       var hasPitcher = !!info.p || !!info.prevP;
-      if (sid === "28") {                                                                                       // W — prev-year wins as proxy, vs avg ~10/season
+      if (sid === "28") {                                                                                       // W — 2-yr avg wins (per season), baseline 8/season
         if (!hasPitcher) return 0;
         var w = (prevP.wins != null) ? prevP.wins : 0;
-        return (w - 8) / 6;  // 8 W is league avg SP, scale down
+        return (w - 8) / 6;  // already per-year from mergeTwoYears
       }
       if (sid === "42") {                                                                                       // K — K-rate vs avg 22%, projected
         if (!hasPitcher) return 0;
@@ -3116,12 +3157,14 @@ var PITCHER_COLSPAN = 19;
 
       function prevCompareLine(info) {
         if (info.b && info.prevB) {
-          return "<div class='text-slate-500 font-mono mt-0.5 text-[10px]'>xwOBA 今 " + (info.b.xwoba||0).toFixed(3) + " · 去 " + (info.prevB.xwoba||0).toFixed(3) + "</div>";
+          var yLabel = (info.prevB._years === 2) ? "2 年" : "去年";
+          return "<div class='text-slate-500 font-mono mt-0.5 text-[10px]'>xwOBA 今 " + (info.b.xwoba||0).toFixed(3) + " · " + yLabel + " " + (info.prevB.xwoba||0).toFixed(3) + "</div>";
         }
         if (info.p && info.prevP) {
-          return "<div class='text-slate-500 font-mono mt-0.5 text-[10px]'>被 xwOBA 今 " + (info.p.xwoba_against||0).toFixed(3) + " · 去 " + (info.prevP.xwoba_against||0).toFixed(3) + "</div>";
+          var yLabel = (info.prevP._years === 2) ? "2 年" : "去年";
+          return "<div class='text-slate-500 font-mono mt-0.5 text-[10px]'>被 xwOBA 今 " + (info.p.xwoba_against||0).toFixed(3) + " · " + yLabel + " " + (info.prevP.xwoba_against||0).toFixed(3) + "</div>";
         }
-        return "<div class='text-slate-600 font-mono mt-0.5 text-[10px]'>(去年無資料)</div>";
+        return "<div class='text-slate-600 font-mono mt-0.5 text-[10px]'>(過去無資料)</div>";
       }
 
       // Top buy-low targets list (their roster)

@@ -2757,6 +2757,25 @@ var PITCHER_COLSPAN = 19;
       var sF = _clamp01(fb - 90, 0, 8);              // FB 90→98
       return sX*0.30 + sK*0.20 + sW*0.20 + sBB*0.10 + sH*0.10 + sF*0.10;
     }
+    // ---- Cross-position calibration ----
+    // batterTrueTalent & pitcherTrueTalent use independent hand-set scales, which
+    // leaves pitchers systematically higher (league mean ~45 vs batters ~36) and
+    // wider-spread, so an elite hitter (Soto) scored lower than a good SP (Sale).
+    // Re-center BOTH pools to a shared mean(50)/sd(20) so a batter and a pitcher of
+    // equal real value land on comparable scores -> fair cross-position trades.
+    function _meanSd(vals) {
+      var n = vals.length; if (n === 0) return { m: 50, s: 1 };
+      var m = vals.reduce(function(a,b){ return a + b; }, 0) / n;
+      var v = vals.reduce(function(a,b){ return a + (b - m) * (b - m); }, 0) / n;
+      return { m: m, s: Math.sqrt(v) || 1 };
+    }
+    var _bRaw = [], _pRaw = [];
+    for (var _bk in allBatters) { var _bv = batterTrueTalent(allBatters[_bk]); if (_bv !== null) _bRaw.push(_bv); }
+    for (var _pk in allPitchers) { var _pv = pitcherTrueTalent(allPitchers[_pk]); if (_pv !== null) _pRaw.push(_pv); }
+    var _bCal = _meanSd(_bRaw), _pCal = _meanSd(_pRaw);
+    var CAL_MEAN = 50, CAL_SD = 20;
+    function normBatterScore(v) { if (v === null || v === undefined) return null; return Math.max(0, Math.min(100, CAL_MEAN + (v - _bCal.m) / _bCal.s * CAL_SD)); }
+    function normPitcherScore(v) { if (v === null || v === undefined) return null; return Math.max(0, Math.min(100, CAL_MEAN + (v - _pCal.m) / _pCal.s * CAL_SD)); }
     // Blend current + previous year with TREND DETECTION:
     // - Default: weight grows with sample (40%→90% current as sample fills)
     //   When PA/BF reaches minSample, current is already 90% weighted
@@ -2803,13 +2822,13 @@ var PITCHER_COLSPAN = 19;
       var isPitcher = isPitcherPlayer(player, allPitchers, allBatters);
       var score;
       if (isPitcher) {
-        var cur = pitcherTrueTalent(p);
-        var prv = pitcherTrueTalent(prevP);
+        var cur = normPitcherScore(pitcherTrueTalent(p));
+        var prv = normPitcherScore(pitcherTrueTalent(prevP));
         var bf = (p && p.bf) || 0;
         score = blendScore(cur, prv, bf, 150);
       } else {
-        var cur = batterTrueTalent(b);
-        var prv = batterTrueTalent(prevB);
+        var cur = normBatterScore(batterTrueTalent(b));
+        var prv = normBatterScore(batterTrueTalent(prevB));
         var pa = (b && b.pa) || 0;
         score = blendScore(cur, prv, pa, 250);
       }
